@@ -1,0 +1,11 @@
+# Browser tests (test/browser_test.dart) are @TestOn('browser'), so a plain
+# `dart test` (VM) skips them. Run them explicitly with:
+#
+#   CHROME_EXECUTABLE=/path/to/chrome dart test -p chrome test/browser_test.dart
+#
+# The --no-sandbox flag lets Chrome launch as root inside CI containers; drop it
+# if you run as a normal user.
+override_platforms:
+  chrome:
+    settings:
+      arguments: "--no-sandbox"

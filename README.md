@@ -259,7 +259,17 @@ expect(find(host.root, 'span')!.children.single.text, '1');
 the equivalent of React's `act()`.
 
 ```bash
-dart test        # 47 tests: vdom, hooks, reconciler, ssr, jsx, hydration, builder
+dart test        # VM suite: vdom, hooks, reconciler, ssr, jsx, hydration, builder
+```
+
+There is also a real-browser suite (`test/browser_test.dart`, `@TestOn('browser')`)
+that compiles to JS and drives the actual DOM — event dispatch, hydration
+adoption, and input focus. It's skipped by the VM run above; run it against a
+Chrome/Chromium binary with:
+
+```bash
+# uses google-chrome from PATH, or set CHROME_EXECUTABLE
+dart test -p chrome test/browser_test.dart
 ```
 
 ## Layout
