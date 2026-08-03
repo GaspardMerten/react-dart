@@ -76,6 +76,22 @@ void main() {
       expect(identical(ulNode.children[1], nodeA), isTrue);
     });
 
+    test('does not move nodes that are already in position', () {
+      VNode view(String label) => div(null, [
+            span({'key': 'a'}, 'stable'),
+            span({'key': 'b'}, label),
+          ]);
+      final host = TestHost();
+      final root = createRoot(host, host.root);
+      root.render(view('x'));
+
+      final before = host.insertBeforeCount;
+      root.render(view('y')); // only 'b' text changes; order unchanged
+      expect(host.insertBeforeCount - before, 0,
+          reason: 'stable, correctly-ordered nodes must not be re-inserted');
+      expect(htmlOf(host), '<div><span>stable</span><span>y</span></div>');
+    });
+
     test('removes a keyed item from the middle', () {
       VNode list(List<String> keys) =>
           ul(null, [for (final k in keys) li({'key': k}, k)]);
@@ -154,6 +170,23 @@ void main() {
       root.act(() => find(host.root, 'button')!.dispatch('click'));
       root.act(() => find(host.root, 'button')!.dispatch('click'));
       expect(log, ['mount']);
+    });
+
+    test('a setState inside an effect is flushed synchronously by act', () {
+      VNode comp(Props props) {
+        final (ready, setReady) = useState(false);
+        useEffect(() {
+          if (!ready) setReady((_) => true);
+        }, [ready]);
+        return span(null, ready ? 'ready' : 'loading');
+      }
+
+      final host = TestHost();
+      final root = createRoot(host, host.root);
+      root.render(h(comp));
+      // Initial render queues the effect, which flips state, which re-renders.
+      // All of it settles before render() returns.
+      expect(find(host.root, 'span')!.children.single.text, 'ready');
     });
 
     test('object ref is attached to the host node', () {

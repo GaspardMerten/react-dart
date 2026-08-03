@@ -179,6 +179,26 @@ void main() {
 Hydration walks the existing server markup and **adopts** the nodes instead of
 recreating them, then attaches event listeners and wires up state.
 
+### Reading values from DOM events
+
+Event handlers receive the native event as an `Object`. To read from it, cast to
+the real `package:web` type — do **not** use `dynamic`, because
+`web.Event` is a js_interop extension type whose members are erased, so
+`(event as dynamic).target` throws at runtime under dart2js:
+
+```dart
+import 'package:web/web.dart' as web;
+
+onInput: (Object e) {
+  final input = (e as web.Event).target as web.HTMLInputElement?;
+  setText(input?.value ?? '');
+}
+```
+
+If a component is shared with the server build (which can't import
+`package:web`), put that helper behind a conditional import — see
+`example/event_target_value_web.dart` / `_stub.dart`.
+
 ## Context
 
 ```dart

@@ -38,9 +38,11 @@ String renderToDocument(
   String lang = 'en',
 }) {
   final body = renderToString(node);
+  // dart2js output is a classic script (it assigns to the global scope), so it
+  // must NOT be loaded as type="module". `defer` runs it after parse.
   final script = bootstrapScript == null
       ? ''
-      : '<script type="module" src="${_escapeAttr(bootstrapScript)}"></script>';
+      : '<script defer src="${_escapeAttr(bootstrapScript)}"></script>';
   return '<!doctype html>\n'
       '<html lang="${_escapeAttr(lang)}">\n'
       '<head>\n'

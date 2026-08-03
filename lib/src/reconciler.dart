@@ -288,14 +288,18 @@ class Root {
 
   // -- Placement -------------------------------------------------------------
 
-  /// Re-inserts each child's host nodes in document order (right-to-left so a
-  /// single stable anchor suffices). Handles inserts and moves uniformly.
+  /// Positions each child's host nodes in document order (right-to-left so a
+  /// single stable anchor suffices). A node already in the correct spot is left
+  /// untouched — critical in the DOM, where re-inserting a focused `<input>`
+  /// would blur it and drop the caret.
   void _placeInOrder(Fiber parent, Object hostParent, Object? trailing) {
     Object? anchor = trailing;
     for (final child in parent.children.reversed) {
       final nodes = _hostNodesOf(child);
       for (final n in nodes.reversed) {
-        host.insertBefore(hostParent, n, anchor);
+        final inPlace = identical(host.parentNode(n), hostParent) &&
+            identical(host.nextSibling(n), anchor);
+        if (!inPlace) host.insertBefore(hostParent, n, anchor);
         anchor = n;
       }
     }
@@ -456,22 +460,27 @@ class Root {
     (h.layout ? _layoutQueue : _passiveQueue).add((f, h));
   }
 
-  /// Processes pending state updates, then runs queued effects. Synchronous —
-  /// this is also what [act] relies on for deterministic tests.
+  /// Processes pending state updates and queued effects until both settle.
+  /// Effects may themselves call `setState`, so this loops: render dirty
+  /// fibers, run effects, and repeat if effects produced more work. Synchronous
+  /// — this is also what [act] relies on for deterministic tests.
   void _drain() {
     var guard = 0;
-    while (_dirty.isNotEmpty) {
-      if (guard++ > 100000) {
-        throw StateError('Too many re-renders. A component keeps updating '
-            'state during render.');
+    do {
+      while (_dirty.isNotEmpty) {
+        if (guard++ > 100000) {
+          throw StateError('Too many re-renders. A component keeps updating '
+              'state during render.');
+        }
+        final batch = _dirty.toList()
+          ..sort((a, b) => a.depth.compareTo(b.depth));
+        _dirty.clear();
+        for (final f in batch) {
+          if (!f.unmounted) _rerender(f);
+        }
       }
-      final batch = _dirty.toList()..sort((a, b) => a.depth.compareTo(b.depth));
-      _dirty.clear();
-      for (final f in batch) {
-        if (!f.unmounted) _rerender(f);
-      }
-    }
-    _flushEffects();
+      _flushEffects();
+    } while (_dirty.isNotEmpty);
   }
 
   void _flushEffects() {

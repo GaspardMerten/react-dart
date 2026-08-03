@@ -52,6 +52,11 @@ abstract class HostAdapter {
 
   /// Whether [node] is a text node (vs. an element). Used during hydration.
   bool isText(Object node);
+
+  /// The node immediately after [node] under the same parent, or `null`. Used
+  /// by placement to avoid moving nodes that are already in position (which in
+  /// the DOM would needlessly blur a focused element).
+  Object? nextSibling(Object node);
 }
 
 // ---------------------------------------------------------------------------
@@ -135,6 +140,10 @@ final class TestHost implements HostAdapter {
   /// The synthetic root container you mount into.
   final TestNode root = TestNode.element('#root');
 
+  /// Number of [insertBefore] calls — lets tests assert that stable nodes are
+  /// not needlessly moved.
+  int insertBeforeCount = 0;
+
   @override
   Object createElement(String tag) => TestNode.element(tag);
 
@@ -171,6 +180,7 @@ final class TestHost implements HostAdapter {
 
   @override
   void insertBefore(Object parent, Object child, Object? reference) {
+    insertBeforeCount++;
     final p = parent as TestNode;
     final c = child as TestNode;
     c.parent?.children.remove(c);
@@ -206,6 +216,15 @@ final class TestHost implements HostAdapter {
 
   @override
   bool isText(Object node) => (node as TestNode).isText;
+
+  @override
+  Object? nextSibling(Object node) {
+    final n = node as TestNode;
+    final siblings = n.parent?.children;
+    if (siblings == null) return null;
+    final idx = siblings.indexOf(n);
+    return (idx < 0 || idx + 1 >= siblings.length) ? null : siblings[idx + 1];
+  }
 }
 
 const Set<String> _voidElements = {

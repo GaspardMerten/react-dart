@@ -7,6 +7,11 @@ library;
 
 import 'package:reactx/reactx.dart';
 
+// Read event.target.value with the right implementation per platform: real
+// `package:web` types on the client, a never-called stub on the server.
+import 'event_target_value_stub.dart'
+    if (dart.library.js_interop) 'event_target_value_web.dart';
+
 /// Root component.
 VNode app(Props props) => div({'class': 'app'}, [
       h1(null, 'reactx demo'),
@@ -58,14 +63,7 @@ VNode todos(Props props) {
     items.length,
     rows,
     draft,
-    (Object e) => setDraft(_targetValue(e)),
+    (Object e) => setDraft(eventTargetValue(e)),
     add,
   ]);
-}
-
-/// Reads `event.target.value` from a DOM input event without a static web
-/// dependency (this file is shared with the server build).
-String _targetValue(Object event) {
-  final dynamic e = event;
-  return (e.target.value as String?) ?? '';
 }

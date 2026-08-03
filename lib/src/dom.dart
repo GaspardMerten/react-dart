@@ -87,6 +87,9 @@ final class DomHostAdapter implements HostAdapter {
 
   @override
   bool isText(Object node) => (node as web.Node).nodeType == web.Node.TEXT_NODE;
+
+  @override
+  Object? nextSibling(Object node) => (node as web.Node).nextSibling;
 }
 
 /// Mounts [app] into the element matching [selector] (default `#root`),

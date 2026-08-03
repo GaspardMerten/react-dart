@@ -91,7 +91,7 @@ void main() {
       expect(doc, contains('<!doctype html>'));
       expect(doc, contains('<title>T</title>'));
       expect(doc, contains('<div id="root"><h1>Hi</h1></div>'));
-      expect(doc, contains('<script type="module" src="main.dart.js">'));
+      expect(doc, contains('<script defer src="main.dart.js">'));
     });
   });
 }
