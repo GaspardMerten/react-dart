@@ -1,0 +1,18 @@
+builders:
+  jsx_precompiler:
+    import: "package:reactx/builder.dart"
+    builder_factories: ["reactxJsxBuilder"]
+    build_extensions:
+      ".dart": [".reactx.g.dart"]
+    auto_apply: root_package
+    build_to: source
+    runs_before: []
+
+# Only precompile templates in app code, not the library internals or tests.
+targets:
+  $default:
+    builders:
+      reactx|jsx_precompiler:
+        generate_for:
+          - example/**
+          - web/**

@@ -1,0 +1,25 @@
+name: reactx
+description: >-
+  A from-scratch reimplementation of React in pure Dart. Component model,
+  hooks, a virtual DOM with keyed reconciliation, first-class server-side
+  rendering, and a JSX-like template syntax with an optional build_runner
+  precompiler.
+version: 0.1.0
+repository: https://github.com/gaspardmerten/react-dart
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  # Browser DOM bindings, used only by the client renderer (lib/dom.dart).
+  # The core library and SSR renderer are pure Dart and do not touch this.
+  web: ^1.1.0
+  # Used by the optional build_runner precompiler (lib/builder.dart).
+  build: ^2.4.1
+  analyzer: ">=6.0.0 <8.0.0"
+
+dev_dependencies:
+  test: ^1.25.0
+  build_runner: ^2.4.13
+  build_test: ^2.2.2
+  lints: ^4.0.0

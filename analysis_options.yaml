@@ -1,0 +1,12 @@
+include: package:lints/recommended.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+  errors:
+    # The builder deliberately uses dynamic AST visiting.
+    avoid_dynamic_calls: ignore
+
+linter:
+  rules:
+    directives_ordering: true

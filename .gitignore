@@ -1,0 +1,18 @@
+# Dart / pub
+.dart_tool/
+.packages
+pubspec.lock
+build/
+
+# Compiled JS output from the example
+*.dart.js
+*.dart.js.deps
+*.dart.js.map
+
+# Editor
+.idea/
+*.iml
+.vscode/
+
+# Note: example/*.reactx.g.dart is intentionally committed so the example
+# builds without first running build_runner.
