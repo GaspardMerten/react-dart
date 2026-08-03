@@ -189,6 +189,18 @@ void main() {
       expect(find(host.root, 'span')!.children.single.text, 'ready');
     });
 
+    test('effect returning a non-cleanup value is ignored, not crashed on', () {
+      VNode comp(Props props) {
+        useEffect(() => 42, const []); // returns a value, not a cleanup
+        return span(null, 'x');
+      }
+
+      final host = TestHost();
+      final root = createRoot(host, host.root);
+      root.render(h(comp));
+      expect(() => root.unmount(), returnsNormally);
+    });
+
     test('object ref is attached to the host node', () {
       final ref = Ref<Object?>(null);
       mount(div({'ref': ref}));

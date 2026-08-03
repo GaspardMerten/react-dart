@@ -245,9 +245,15 @@ class _Parser {
     _expect('<');
     _expect('/');
     if (_isSlotStart()) {
-      _parseSlot();
+      final close = _parseSlot();
+      if (tagOrSlot != close) {
+        _err('closing tag </\${$close}> does not match opening <\${$tagOrSlot}>');
+      }
     } else {
-      _readName();
+      final close = _readName();
+      if (tagOrSlot != close) {
+        _err('closing tag </$close> does not match opening <$tagOrSlot>');
+      }
     }
     _skipWs();
     _expect('>');

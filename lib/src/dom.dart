@@ -36,10 +36,15 @@ final class DomHostAdapter implements HostAdapter {
   @override
   void setAttribute(Object node, String name, Object? value) {
     final el = node as web.Element;
+    // Honor the HostAdapter contract: a null value removes the attribute.
+    if (value == null) {
+      el.removeAttribute(name);
+      return;
+    }
     el.setAttribute(name, value == true ? '' : '$value');
     // Form controls read from properties, not attributes, after user input.
     if (name == 'value' || name == 'checked' || name == 'selected') {
-      (el as JSObject).setProperty(name.toJS, (value ?? '').jsify());
+      (el as JSObject).setProperty(name.toJS, value.jsify());
     }
   }
 

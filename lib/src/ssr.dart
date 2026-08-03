@@ -28,7 +28,8 @@ String renderToString(VNode node) {
 /// Convenience: renders [node] as the `<body>` of a full HTML document.
 ///
 /// [head] is raw HTML inserted into `<head>`. [bootstrapScript], when given, is
-/// added as a `<script type="module" src="...">` so the client can hydrate.
+/// added as a `<script defer src="...">` (not a module — dart2js output assigns
+/// to the global scope) so the client can hydrate.
 String renderToDocument(
   VNode node, {
   String title = 'reactx app',

@@ -118,6 +118,7 @@ class Root {
   /// [renderToString]). Avoid adjacent bare-text siblings, which the server
   /// collapses into a single text node.
   void hydrate(VNode vnode) {
+    if (_root != null) _unmount(_root!); // don't leak a prior tree's cleanups
     _root = _mount(vnode, null, container, null, _Hydration(host.childNodes(container)));
     _drain();
   }
@@ -493,7 +494,10 @@ class Root {
         h.cleanup?.call();
         final result = h.pending?.call();
         h.pending = null;
-        h.cleanup = result is Function ? () => (result as dynamic)() : null;
+        // Only a zero-arg function is a valid cleanup. Anything else (a Future
+        // from an async effect, a value, a function needing args) is ignored,
+        // rather than crashing later when we'd try to call it.
+        h.cleanup = result is Cleanup ? result : null;
       }
     }
 

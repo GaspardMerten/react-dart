@@ -81,6 +81,11 @@ void main() {
       expect(renderToString(jsx(r'<div><!-- hi -->x</div>')), '<div>x</div>');
     });
 
+    test('mismatched closing tag throws', () {
+      expect(() => jsx(r'<div>x</span>'), throwsFormatException);
+      expect(() => jsx(r'<ul><li>x</ul></li>'), throwsFormatException);
+    });
+
     test('caches compiled templates by identity', () {
       const t = r'<div>${0}</div>';
       final a = jsx(t, ['1']);
