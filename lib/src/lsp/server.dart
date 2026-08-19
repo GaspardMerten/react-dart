@@ -567,6 +567,17 @@ class DartxLanguageServer {
       }
       if (mapped.isEmpty) continue;
 
+      // A `targetRange` is the whole declaration — usually the generated class,
+      // which has no counterpart in the source. Leaving it behind while
+      // rewriting the URI hands the editor a range outside the file it now
+      // names, and a link an editor cannot validate is a link it will not
+      // follow. The selection range is a real position in the real file.
+      if (result.containsKey('targetRange') && !mapped.containsKey('targetRange')) {
+        final fallback = mapped['targetSelectionRange'];
+        if (fallback == null) continue;
+        mapped['targetRange'] = fallback;
+      }
+
       result[key] = sourceUri;
       mapped.forEach((rangeKey, range) => result[rangeKey] = range);
     }
@@ -615,13 +626,21 @@ class DartxLanguageServer {
     }
     if (node is! Map) return node;
 
-    // Already handled: a location's ranges were mapped alongside its URI.
-    if (node['uri'] != null || node['targetUri'] != null) return node;
-
     final result = <String, Object?>{};
     node.forEach((key, value) {
       result[key as String] = _mapBareRanges(document, value);
     });
+
+    // `originSelectionRange` is the odd one out: it belongs to the document the
+    // question was asked about, not to the one the answer points at. It is what
+    // the editor makes clickable, so leaving it in generated coordinates puts
+    // the link somewhere other than the word under the cursor.
+    final origin = _mapRangeBack(document, result['originSelectionRange']);
+    if (origin != null) result['originSelectionRange'] = origin;
+
+    // Everything else beside a URI was already mapped against the file that URI
+    // names; mapping it again here would be mapping it twice.
+    if (result['uri'] != null || result['targetUri'] != null) return result;
 
     for (final key in const ['range', 'selectionRange']) {
       final mapped = _mapRangeBack(document, result[key]);

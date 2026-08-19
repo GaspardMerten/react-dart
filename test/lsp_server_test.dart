@@ -67,7 +67,8 @@ class Editor {
   /// What the server said it can do, which is a contract in its own right.
   Map<String, Object?> capabilities = const {};
 
-  static Future<Editor> start(String workspacePath) async {
+  static Future<Editor> start(String workspacePath,
+      {Map<String, Object?> capabilities = const {}}) async {
     final process = await Process.start(
       'dart',
       ['run', 'reactx:dartx_lsp'],
@@ -77,7 +78,7 @@ class Editor {
     final initialized = await editor.request('initialize', {
       'processId': pid,
       'rootUri': Uri.file(workspacePath).toString(),
-      'capabilities': <String, Object?>{},
+      'capabilities': capabilities,
     });
     editor.capabilities = Map<String, Object?>.from(
         (initialized['result'] as Map?)?['capabilities'] as Map? ?? const {});
@@ -304,6 +305,62 @@ Component Page({required int done}) => <section>
         reason: 'a generated file is not somewhere a person should be sent');
     // `Component StatCard(` — the declaration, not the appended props class.
     expect(((target['range'] as Map)['start'] as Map)['line'], 2);
+  });
+
+  test('a definition link is usable when the editor asks for one', () async {
+    // VS Code sends `linkSupport: true`, which changes the answer's shape from
+    // a Location to a LocationLink — three ranges instead of one, two of which
+    // this proxy used to leave in generated coordinates. The result was a link
+    // whose target range fell outside the file it named, and an editor will
+    // not follow one of those. Ctrl-click simply did nothing.
+    final linkEditor = await Editor.start(workspace.path, capabilities: {
+      'textDocument': {
+        'definition': {'dynamicRegistration': true, 'linkSupport': true},
+      }
+    });
+    addTearDown(linkEditor.stop);
+
+    const source = '''import 'package:reactx/reactx.dart';
+
+import 'card.dartx.dart';
+
+Component Panel() => <section>
+  <StatCard label="Done" value={1} />
+</section>;
+''';
+    final uri = Uri.file('${workspace.path}/lib/panel.dartx').toString();
+    linkEditor.open(uri, source);
+    await eventually(() => true, limit: const Duration(seconds: 12));
+
+    final line = source.split('\n')[5];
+    final response = await linkEditor.request('textDocument/definition', {
+      'textDocument': {'uri': uri},
+      'position': {'line': 5, 'character': line.indexOf('StatCard') + 2},
+    });
+
+    final links = response['result'] as List?;
+    expect(links, isNotEmpty);
+    final link = links!.first as Map<String, Object?>;
+
+    // What the editor makes clickable has to be the word under the cursor.
+    final origin = link['originSelectionRange'] as Map?;
+    expect(origin, isNotNull, reason: 'no clickable region, no Ctrl-click');
+    expect((origin!['start'] as Map)['line'], 5);
+    expect((origin['start'] as Map)['character'], line.indexOf('StatCard'));
+    expect((origin['end'] as Map)['character'],
+        line.indexOf('StatCard') + 'StatCard'.length);
+
+    // Every range that names the target must be inside the target.
+    final target = '${link['targetUri']}';
+    expect(target, endsWith('card.dartx'));
+    final targetLines =
+        File(Uri.parse(target).toFilePath()).readAsStringSync().split('\n').length;
+    for (final key in const ['targetRange', 'targetSelectionRange']) {
+      final range = link[key] as Map?;
+      expect(range, isNotNull, reason: key);
+      expect((range!['start'] as Map)['line'], lessThan(targetLines),
+          reason: '$key points past the end of the file it names');
+    }
   });
 
   test('find references on a component reports where the markup uses it',

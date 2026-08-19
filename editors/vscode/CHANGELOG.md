@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.4
+
+* Fixed: Ctrl-click still did nothing. VS Code asks for definitions as *links*,
+  which carry three ranges rather than one — and two of them were left in the
+  generated file's coordinates. The clickable region landed beside the word,
+  and the target range fell outside the file it named, which is a link no
+  editor will follow.
+
 ## 0.2.3
 
 * Changes are batched before they reach the analysis server. Each one costs a
