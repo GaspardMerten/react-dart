@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.2
+
+* Fixed: "couldn't create connection to server" / "Server initialization
+  failed". The proxy forwarded the analysis server's capabilities wholesale,
+  including `executeCommandProvider` — whose command ids the Dart extension has
+  already registered. Registering them twice throws and takes initialization
+  with it. The server now advertises only what it actually translates.
+* Fixed: full-document sync is now requested explicitly. The analyser asks for
+  incremental edits, and this proxy compiles the whole buffer — so the first
+  keystroke would have been read as the entire file.
+* Fixed: a hover's highlight was placed using the generated file's columns.
+
 ## 0.2.1
 
 * Fixed: Ctrl-click and hover did nothing. The Dart analysis server does not

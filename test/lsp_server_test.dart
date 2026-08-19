@@ -64,6 +64,9 @@ class Editor {
   final List<Map<String, Object?>> notifications = [];
   int _id = 0;
 
+  /// What the server said it can do, which is a contract in its own right.
+  Map<String, Object?> capabilities = const {};
+
   static Future<Editor> start(String workspacePath) async {
     final process = await Process.start(
       'dart',
@@ -71,11 +74,13 @@ class Editor {
       workingDirectory: workspacePath,
     );
     final editor = Editor(process);
-    await editor.request('initialize', {
+    final initialized = await editor.request('initialize', {
       'processId': pid,
       'rootUri': Uri.file(workspacePath).toString(),
       'capabilities': <String, Object?>{},
     });
+    editor.capabilities = Map<String, Object?>.from(
+        (initialized['result'] as Map?)?['capabilities'] as Map? ?? const {});
     editor.notify('initialized', {});
     return editor;
   }
@@ -182,6 +187,58 @@ void main() {
   tearDownAll(() async {
     editor.stop();
     await workspace.delete(recursive: true);
+  });
+
+  group('what the server tells the editor it can do', () {
+    test('it claims the requests it translates', () {
+      // Without this the editor never asks. The analysis server advertises
+      // neither definition nor hover up front — it registers them later,
+      // scoped to `language: dart` — so a `.dartx` file went unserved and
+      // Ctrl-click did nothing at all.
+      for (final capability in const [
+        'definitionProvider',
+        'typeDefinitionProvider',
+        'implementationProvider',
+        'referencesProvider',
+        'hoverProvider',
+        'documentHighlightProvider',
+      ]) {
+        expect(editor.capabilities[capability], isTrue, reason: capability);
+      }
+      expect(editor.capabilities['completionProvider'], isNotNull);
+    });
+
+    test('it claims nothing that would act on the generated file', () {
+      // `executeCommandProvider` is the one that broke the editor outright:
+      // its command ids are the Dart extension's, and registering them twice
+      // fails initialization. The rest would be quieter and worse — a code
+      // action or a rename edits a `WorkspaceEdit` whose paths this proxy does
+      // not rewrite, so accepting the fix would edit generated Dart that the
+      // next build discards.
+      for (final capability in const [
+        'executeCommandProvider',
+        'codeActionProvider',
+        'renameProvider',
+        'documentFormattingProvider',
+        'documentRangeFormattingProvider',
+        'documentSymbolProvider',
+        'foldingRangeProvider',
+        'semanticTokensProvider',
+        'callHierarchyProvider',
+      ]) {
+        expect(editor.capabilities.containsKey(capability), isFalse,
+            reason: '$capability would act on a file the person cannot see');
+      }
+    });
+
+    test('it asks for whole documents, not ranged edits', () {
+      // The generated Dart comes from compiling the entire buffer, so there is
+      // nothing for a ranged edit to apply to — and reading the typed fragment
+      // as the whole file would replace the document with one character.
+      final sync = editor.capabilities['textDocumentSync'];
+      expect(sync, isA<Map>());
+      expect((sync as Map)['change'], 1);
+    });
   });
 
   test('a Dart type error is reported against the .dartx that caused it',

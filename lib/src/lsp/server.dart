@@ -89,6 +89,11 @@ class DartxLanguageServer {
   /// way back.
   Object? _initializeId;
 
+  /// Requests translated on the way out, by id, so their answers can be
+  /// translated on the way back. A hover's range has no URI beside it to say
+  /// which file it belongs to — the question it answers is the only record.
+  final Map<Object, String> _inFlight = {};
+
   void _log(String message) => logSink?.writeln('[dartx-lsp] $message');
 
   Future<void> start() async {
@@ -135,10 +140,17 @@ class DartxLanguageServer {
     }
 
     if (method != null && _positionRequests.contains(method)) {
+      final id = message['id'];
+      final uri = ((message['params'] as Map?)?['textDocument']
+          as Map?)?['uri'] as String?;
+      if (id != null && uri != null && uri.endsWith('.dartx')) {
+        _inFlight[id] = uri;
+      }
       final translated = _translateRequest(message);
       // A position that does not survive compilation has no answer; say so
       // rather than sending the analyser a question about the wrong place.
       if (translated == null) {
+        _inFlight.remove(message['id']);
         _toEditor({'jsonrpc': '2.0', 'id': message['id'], 'result': null});
         return;
       }
@@ -321,7 +333,16 @@ class DartxLanguageServer {
       _toEditor(_translateDiagnostics(message));
       return;
     }
-    _toEditor(_dedupeLocations(_mapLocationsBack(message)));
+
+    // A response to something translated on the way out carries ranges in
+    // generated coordinates, and a hover's range has no URI beside it to give
+    // that away. The request it answers is what identifies the file.
+    final asked = _inFlight.remove(message['id']);
+    final document = asked == null ? null : _documents[asked];
+
+    var answer = _mapLocationsBack(message);
+    if (document != null) answer = _mapBareRanges(document, answer);
+    _toEditor(_dedupeLocations(answer));
   }
 
   /// Collapses locations that became identical on the way back.
@@ -345,47 +366,68 @@ class DartxLanguageServer {
     return {...message, 'result': unique};
   }
 
-  /// Says out loud which requests this server answers.
+  /// Replaces the analyser's advertised capabilities with the ones this proxy
+  /// can honestly stand behind.
   ///
-  /// The analysis server does not advertise `definitionProvider` or
-  /// `hoverProvider` in its `initialize` answer at all — it registers them
-  /// later, dynamically, scoped to `language: dart`. A `.dartx` file is not
-  /// that language, so an editor obeying the negotiation never sends the
-  /// request, and Ctrl-click does nothing at all. Nothing is broken; the
-  /// question is simply never asked.
+  /// Forwarding them wholesale is wrong twice over.
   ///
-  /// So the answer is corrected on the way past. Everything claimed here is
-  /// something [_positionRequests] actually translates.
+  /// It **breaks the editor outright**. The analysis server advertises
+  /// `executeCommandProvider` with ids like `dart.edit.codeAction.apply`, and
+  /// the Dart extension has already registered those with VS Code. Registering
+  /// them a second time throws, initialization fails, and the language client
+  /// reports "couldn't create connection to server" — which reads like a
+  /// startup problem and is really a name collision.
+  ///
+  /// It also **promises things that would be wrong if they worked**. A code
+  /// action or a rename comes back as a `WorkspaceEdit`, whose file paths are
+  /// keys rather than values, so nothing here rewrites them: accepting the fix
+  /// would edit the generated file, and the next build would throw the edit
+  /// away. Formatting would reformat compiled markup back into the source.
+  /// Document symbols and folding ranges arrive in generated coordinates with
+  /// no URI beside them to notice.
+  ///
+  /// So the list below is exactly what [_positionRequests] translates, and
+  /// everything else is dropped until it is genuinely handled. A missing
+  /// feature is a gap; a feature that silently edits the wrong file is a bug.
   Map<String, Object?> _claimDartx(Map<String, Object?> message) {
     final result = message['result'];
     if (result is! Map<String, Object?>) return message;
 
-    final capabilities = Map<String, Object?>.from(
-        result['capabilities'] as Map<String, Object?>? ?? const {});
-
-    capabilities['definitionProvider'] ??= true;
-    capabilities['typeDefinitionProvider'] ??= true;
-    capabilities['implementationProvider'] ??= true;
-    capabilities['hoverProvider'] ??= true;
-    capabilities['referencesProvider'] ??= true;
-    capabilities['documentHighlightProvider'] ??= true;
-    capabilities['completionProvider'] ??= const {
-      // Enough to be useful inside an element; an unclosed tag has nothing to
-      // compile, so completion there stays empty rather than wrong.
-      'triggerCharacters': ['.', '=', '(', r'$'],
-    };
-
     return {
       ...message,
-      'result': {...result, 'capabilities': capabilities},
+      'result': {
+        ...result,
+        'capabilities': <String, Object?>{
+          // Full-document sync, deliberately. The generated Dart is produced by
+          // compiling the whole buffer, so a ranged edit has nothing to be
+          // applied to — and `_fullText` would read the typed fragment as the
+          // entire file.
+          'textDocumentSync': {'openClose': true, 'change': 1},
+          'definitionProvider': true,
+          'typeDefinitionProvider': true,
+          'implementationProvider': true,
+          'referencesProvider': true,
+          'hoverProvider': true,
+          'documentHighlightProvider': true,
+          'completionProvider': const {
+            // Enough to be useful inside an element. An unclosed tag has
+            // nothing to compile, so completion there stays empty.
+            'triggerCharacters': ['.', '=', '(', r'$'],
+          },
+        },
+      },
     };
   }
 
-  /// Extends a dynamic registration to cover `.dartx` as well as `.dart`.
+  /// Extends a dynamic registration to cover `.dartx`, for the methods this
+  /// proxy translates — and drops the rest.
   ///
-  /// The analyser registers for the language it knows about. Left alone, the
-  /// editor would route `.dart` requests to this server and `.dartx` requests
-  /// nowhere — which is the opposite of the arrangement.
+  /// The analyser registers `textDocument/definition` and friends *after*
+  /// initialization, scoped to `language: dart`. A `.dartx` file is not that
+  /// language, so without this the editor never asks and Ctrl-click does
+  /// nothing at all. Registrations for methods not in [_positionRequests] are
+  /// dropped for the same reason they are not advertised: answering them would
+  /// mean acting on the wrong file.
   Map<String, Object?> _widenRegistrations(Map<String, Object?> message) {
     final params = message['params'];
     if (params is! Map<String, Object?>) return message;
@@ -399,6 +441,7 @@ class DartxLanguageServer {
         widened.add(raw);
         continue;
       }
+      if (!_positionRequests.contains(raw['method'])) continue;
       final registration = Map<String, Object?>.from(raw);
       final options = registration['registerOptions'];
       if (options is Map<String, Object?>) {
@@ -519,6 +562,33 @@ class DartxLanguageServer {
         PositionMap(source: source, generated: compiled.code!));
     _onDisk[sourceUri] = document;
     return document;
+  }
+
+  /// Maps `range` entries that are not part of a location.
+  ///
+  /// A [Location] says which file it is in, so [_mapLocationsBack] can find the
+  /// right document. A hover result is just `{contents, range}` — the range
+  /// belongs to the file the question was asked about, and nothing in the
+  /// message says so.
+  Object? _mapBareRanges(_Document document, Object? node) {
+    if (node is List) {
+      return [for (final item in node) _mapBareRanges(document, item)];
+    }
+    if (node is! Map) return node;
+
+    // Already handled: a location's ranges were mapped alongside its URI.
+    if (node['uri'] != null || node['targetUri'] != null) return node;
+
+    final result = <String, Object?>{};
+    node.forEach((key, value) {
+      result[key as String] = _mapBareRanges(document, value);
+    });
+
+    for (final key in const ['range', 'selectionRange']) {
+      final mapped = _mapRangeBack(document, result[key]);
+      if (mapped != null) result[key] = mapped;
+    }
+    return result;
   }
 
   Map<String, Object?>? _mapRangeBack(_Document document, Object? range) {
