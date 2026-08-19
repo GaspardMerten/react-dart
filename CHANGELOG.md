@@ -2,6 +2,18 @@
 
 ## 0.3.0
 
+**A language server for `.dartx`.** `dart run reactx:dartx_lsp` proxies to
+Dart's own analysis server, so a `.dartx` file gets the analyser's real answers
+— type errors inline on the line that caused them, go to definition, hover —
+without a second analyser existing anywhere. Go to definition on `<StatCard />`
+lands on `Component StatCard(…)`, not on the generated props type.
+
+It works because the transpiler preserves line numbers exactly, which reduces
+position translation to recovering a column; that is done by identifier, since
+compilation preserves the order of identifiers on a line. Completion inside a
+complete element works; completion mid-tag does not yet, because an unclosed
+tag has nothing to compile.
+
 **Fixes from a full framework review.** Three subsystems were reviewed
 independently; every finding below was reproduced before it was fixed, and each
 one now has a regression test.

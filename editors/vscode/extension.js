@@ -4,17 +4,24 @@
 /**
  * dartx for VS Code.
  *
- * Three things, in order of how much you notice them:
+ * Four things, in order of how much you notice them:
  *
- *   1. Diagnostics. A `dart run reactx:dartx --server` process per workspace
- *      folder answers check requests over stdin/stdout, so the buffer is
- *      re-checked as you type without paying VM startup each time.
+ *   1. A language server. `dart run reactx:dartx_lsp` proxies to Dart's own
+ *      analysis server, so a `.dartx` file gets real type errors, hover and
+ *      go-to-definition — the analyser's own answers, about the Dart the file
+ *      compiles to, reported back against the file being edited.
  *   2. Tag editing. Finishing `<div>` writes `</div>`; typing `</` completes
  *      the innermost open tag.
  *   3. Commands for the build_runner round trip and for jumping to the
  *      generated Dart.
+ *   4. HTML tag suggestions after `<`.
  *
  * Highlighting and snippets are declarative — see syntaxes/ and snippets/.
+ *
+ * The older stdin/stdout checker below is still here and takes over whenever
+ * the language server cannot start — no Dart SDK on PATH, or a workspace where
+ * reactx is not a dependency. It reports markup errors only, which is a real
+ * step down from the analyser but better than a file with no feedback at all.
  */
 
 const vscode = require('vscode');
@@ -340,6 +347,63 @@ async function compileFile() {
 }
 
 // ---------------------------------------------------------------------------
+// The language server
+// ---------------------------------------------------------------------------
+
+/** @type {any} */
+let client = null;
+
+/**
+ * Starts `dartx_lsp`, which proxies to the Dart analysis server.
+ *
+ * Returns true when it came up. On failure the caller falls back to the
+ * markup-only checker rather than leaving the editor with nothing.
+ * @param {vscode.ExtensionContext} context
+ * @returns {Promise<boolean>}
+ */
+async function startLanguageServer(context) {
+  if (!config().get('languageServer.enabled', true)) return false;
+
+  let LanguageClient, TransportKind;
+  try {
+    ({ LanguageClient, TransportKind } = require('vscode-languageclient/node'));
+  } catch (e) {
+    output.appendLine(`[dartx] language client unavailable: ${e}`);
+    return false;
+  }
+
+  const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+  const server = {
+    command: config().get('dartPath', 'dart'),
+    args: ['run', 'reactx:dartx_lsp'],
+    transport: TransportKind.stdio,
+    options: { cwd: folder && folder.uri.fsPath },
+  };
+
+  try {
+    client = new LanguageClient(
+      'dartx',
+      'dartx language server',
+      { run: server, debug: server },
+      {
+        documentSelector: [{ scheme: 'file', language: 'dartx' }],
+        outputChannel: output,
+        // The server publishes against the `.dartx` itself, having already
+        // mapped the analyser's answers back.
+        diagnosticCollectionName: 'dartx',
+      });
+    await client.start();
+    output.appendLine('[dartx] language server ready');
+    context.subscriptions.push({ dispose: () => client && client.stop() });
+    return true;
+  } catch (e) {
+    output.appendLine(`[dartx] language server failed to start: ${e}`);
+    client = null;
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Activation
 // ---------------------------------------------------------------------------
 
@@ -351,14 +415,33 @@ function activate(context) {
 
   const runOnType = () => config().get('diagnostics.runOn', 'type') === 'type';
 
+  // The language server owns diagnostics when it is running. Running both would
+  // double every squiggle, and the markup errors are a strict subset.
+  let usingLanguageServer = false;
+  startLanguageServer(context).then((started) => {
+    usingLanguageServer = started;
+    if (!started) {
+      vscode.workspace.textDocuments.forEach(check);
+      return;
+    }
+    diagnostics.clear();
+    for (const server of servers.values()) server.dispose();
+    servers.clear();
+  });
+
+  /** @param {vscode.TextDocument} doc */
+  const checkIfFallback = (doc) => {
+    if (!usingLanguageServer) check(doc);
+  };
+
   context.subscriptions.push(
-    vscode.workspace.onDidOpenTextDocument(check),
-    vscode.workspace.onDidSaveTextDocument(check),
+    vscode.workspace.onDidOpenTextDocument(checkIfFallback),
+    vscode.workspace.onDidSaveTextDocument(checkIfFallback),
     vscode.workspace.onDidCloseTextDocument((doc) => diagnostics.delete(doc.uri)),
     vscode.workspace.onDidChangeTextDocument((event) => {
       autoCloseTag(event);
       autoCompleteClosingTag(event);
-      if (runOnType()) scheduleCheck(event.document);
+      if (!usingLanguageServer && runOnType()) scheduleCheck(event.document);
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (!event.affectsConfiguration('dartx')) return;
@@ -372,10 +455,15 @@ function activate(context) {
       runInTerminal('dart run build_runner watch --delete-conflicting-outputs')),
     vscode.commands.registerCommand('dartx.compileFile', compileFile),
     vscode.commands.registerCommand('dartx.openGenerated', openGenerated),
-    vscode.commands.registerCommand('dartx.restartServer', () => {
+    vscode.commands.registerCommand('dartx.restartServer', async () => {
       for (const server of servers.values()) server.dispose();
       servers.clear();
-      vscode.workspace.textDocuments.forEach(check);
+      if (client) {
+        await client.stop();
+        client = null;
+      }
+      usingLanguageServer = await startLanguageServer(context);
+      if (!usingLanguageServer) vscode.workspace.textDocuments.forEach(check);
     }),
     vscode.languages.registerCompletionItemProvider('dartx', {
       provideCompletionItems(doc, position) {
@@ -391,12 +479,12 @@ function activate(context) {
     }, '<'),
   );
 
-  vscode.workspace.textDocuments.forEach(check);
 }
 
-function deactivate() {
+async function deactivate() {
   for (const server of servers.values()) server.dispose();
   servers.clear();
+  if (client) await client.stop();
 }
 
 module.exports = { activate, deactivate };

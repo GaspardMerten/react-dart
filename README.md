@@ -30,8 +30,10 @@ void main() => print(renderToString(const CounterProps()));
 ```
 
 `dart run build_runner build` turns that into `counter.dartx.dart` — ordinary
-Dart calling `h(...)`, with the line numbers preserved. There is a
-[VS Code extension](editors/vscode) for the `.dartx` half.
+Dart calling `h(...)`, with the line numbers preserved. The
+[VS Code extension](editors/vscode) gives `.dartx` files real type errors, go
+to definition and hover, by proxying to Dart's own analysis server rather than
+reimplementing one.
 
 ---
 
@@ -339,10 +341,38 @@ dartx: lib/app.dartx:24:7: closing tag `</section>` does not match opening `<div
 
 ### Editor support
 
-[`editors/vscode`](editors/vscode) is a VS Code extension for `.dartx`:
-highlighting, live diagnostics from the transpiler, closing-tag insertion,
-snippets, and commands for the build_runner round trip. Install it with
-`npx @vscode/vsce package && code --install-extension dartx-0.1.0.vsix`.
+[`editors/vscode`](editors/vscode) is a VS Code extension for `.dartx`. Install
+it with `npm install && npx @vscode/vsce package && code --install-extension
+dartx-0.2.0.vsix`.
+
+It ships a **language server** — `dart run reactx:dartx_lsp` — which is a proxy
+in front of Dart's own analysis server rather than a second analyser:
+
+```
+  editor  ──  Page.dartx, line 5  ──▶  dartx lsp
+                                          │  transpile, map the position
+                                          ▼
+  dart language-server  ◀──  Page.dartx.dart, line 5
+                                          │
+  editor  ◀──  an error on Page.dartx line 5  ──┘
+```
+
+So `<StatCard value={'three'} />` is underlined in the `.dartx`, on the line
+that wrote it, with the analyser's own message; go to definition on `<StatCard>`
+opens `Component StatCard(…)` in the file that declares it; and hover reports
+the declared type of an argument. The editor never learns that a generated file
+exists.
+
+That works because the transpiler preserves line numbers exactly, which leaves
+only the column to recover — done by identifier, since compilation preserves
+the order of identifiers on a line. Two limits worth knowing: completion inside
+a complete element works but completion *mid-tag* does not (an unclosed tag has
+nothing to compile), and a component name resolves through its generated props
+type, so *find all references* reports the generated call sites.
+
+On top of that: highlighting, the transpiler's own markup diagnostics (which
+the analyser cannot produce, since it never sees the markup), closing-tag
+insertion, snippets, and commands for the build_runner round trip.
 
 ## The `jsx` runtime template syntax
 

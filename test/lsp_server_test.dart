@@ -1,0 +1,284 @@
+/// The `.dartx` language server, driven the way an editor drives it.
+///
+/// This talks real LSP over stdio to the real server, which spawns the real
+/// `dart language-server`. Nothing is stubbed, because the whole claim being
+/// tested is that Dart's own analyser can answer questions about a file it
+/// cannot read — and a stub would answer them by construction.
+///
+/// It is slow (the analysis server takes seconds to warm up) and it needs a
+/// Dart SDK on PATH, so it self-skips when that is missing.
+@Timeout(Duration(minutes: 4))
+library;
+
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:test/test.dart';
+
+/// A workspace on disk, because the analysis server resolves imports and
+/// packages the way it always does and there is no point pretending otherwise.
+late Directory workspace;
+
+Future<void> setUpWorkspace() async {
+  workspace = await Directory.systemTemp.createTemp('reactx_lsp_');
+  final root = Directory.current.path;
+
+  File('${workspace.path}/pubspec.yaml').writeAsStringSync('''
+name: dartx_lsp_probe
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+dependencies:
+  reactx:
+    path: $root
+''');
+
+  Directory('${workspace.path}/lib').createSync();
+  File('${workspace.path}/lib/card.dartx').writeAsStringSync('''
+import 'package:reactx/reactx.dart';
+
+Component StatCard({required String label, required int value}) => <div class="card">
+  <span>{label}</span>
+  <b>{value}</b>
+</div>;
+''');
+
+  final pubGet = await Process.run('dart', ['pub', 'get'],
+      workingDirectory: workspace.path);
+  if (pubGet.exitCode != 0) throw StateError('pub get: ${pubGet.stderr}');
+
+  final build = await Process.run(
+      'dart', ['run', 'build_runner', 'build', '--delete-conflicting-outputs'],
+      workingDirectory: workspace.path);
+  if (build.exitCode != 0) throw StateError('build_runner: ${build.stderr}');
+}
+
+/// A minimal LSP client: enough to open a document and ask about a position.
+class Editor {
+  Editor(this.process) {
+    _listen();
+  }
+
+  final Process process;
+  final Map<int, Completer<Map<String, Object?>>> _pending = {};
+  final List<Map<String, Object?>> notifications = [];
+  int _id = 0;
+
+  static Future<Editor> start(String workspacePath) async {
+    final process = await Process.start(
+      'dart',
+      ['run', 'reactx:dartx_lsp'],
+      workingDirectory: workspacePath,
+    );
+    final editor = Editor(process);
+    await editor.request('initialize', {
+      'processId': pid,
+      'rootUri': Uri.file(workspacePath).toString(),
+      'capabilities': <String, Object?>{},
+    });
+    editor.notify('initialized', {});
+    return editor;
+  }
+
+  void _send(Map<String, Object?> message) {
+    final body = utf8.encode(jsonEncode(message));
+    process.stdin
+      ..add(utf8.encode('Content-Length: ${body.length}\r\n\r\n'))
+      ..add(body);
+  }
+
+  Future<Map<String, Object?>> request(String method, Map<String, Object?> p) {
+    final id = ++_id;
+    final completer = Completer<Map<String, Object?>>();
+    _pending[id] = completer;
+    _send({'jsonrpc': '2.0', 'id': id, 'method': method, 'params': p});
+    return completer.future.timeout(const Duration(seconds: 90));
+  }
+
+  void notify(String method, Map<String, Object?> p) =>
+      _send({'jsonrpc': '2.0', 'method': method, 'params': p});
+
+  void open(String uri, String text) => notify('textDocument/didOpen', {
+        'textDocument': {
+          'uri': uri,
+          'languageId': 'dartx',
+          'version': 1,
+          'text': text,
+        }
+      });
+
+  void _listen() {
+    final buffer = <int>[];
+    process.stdout.listen((chunk) {
+      buffer.addAll(chunk);
+      while (true) {
+        final text = utf8.decode(buffer, allowMalformed: true);
+        final headerEnd = text.indexOf('\r\n\r\n');
+        if (headerEnd < 0) return;
+        final match =
+            RegExp(r'Content-Length: (\d+)').firstMatch(text.substring(0, headerEnd));
+        if (match == null) return;
+        final length = int.parse(match.group(1)!);
+        final headerBytes = utf8.encode(text.substring(0, headerEnd + 4)).length;
+        if (buffer.length < headerBytes + length) return;
+
+        final body =
+            utf8.decode(buffer.sublist(headerBytes, headerBytes + length));
+        buffer.removeRange(0, headerBytes + length);
+
+        final message = jsonDecode(body) as Map<String, Object?>;
+        final id = message['id'];
+        if (id is int && _pending.containsKey(id)) {
+          _pending.remove(id)!.complete(message);
+        } else if (message['method'] != null) {
+          notifications.add(message);
+        }
+      }
+    });
+  }
+
+  /// Diagnostics most recently published for [uri].
+  List<Map<String, Object?>> diagnosticsFor(String uri) {
+    final published = notifications.where((n) =>
+        n['method'] == 'textDocument/publishDiagnostics' &&
+        (n['params'] as Map)['uri'] == uri);
+    if (published.isEmpty) return const [];
+    return [
+      for (final entry in published)
+        for (final d in (entry['params'] as Map)['diagnostics'] as List)
+          Map<String, Object?>.from(d as Map)
+    ];
+  }
+
+  void stop() => process.kill();
+}
+
+/// Waits until [predicate] holds, or gives up. LSP is asynchronous and the
+/// analysis server warms up slowly; polling beats a fixed sleep.
+Future<bool> eventually(bool Function() predicate,
+    {Duration limit = const Duration(seconds: 90)}) async {
+  final deadline = DateTime.now().add(limit);
+  while (DateTime.now().isBefore(deadline)) {
+    if (predicate()) return true;
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+  }
+  return predicate();
+}
+
+void main() {
+  final dart = Process.runSync('dart', ['--version']);
+  if (dart.exitCode != 0) {
+    test('language server', () {}, skip: 'no Dart SDK on PATH');
+    return;
+  }
+
+  late Editor editor;
+
+  setUpAll(() async {
+    await setUpWorkspace();
+    editor = await Editor.start(workspace.path);
+  });
+
+  tearDownAll(() async {
+    editor.stop();
+    await workspace.delete(recursive: true);
+  });
+
+  test('a Dart type error is reported against the .dartx that caused it',
+      () async {
+    const source = '''import 'package:reactx/reactx.dart';
+
+import 'card.dartx.dart';
+
+Component Page() => <section>
+  <StatCard label="Done" value={'three'} />
+  <StatCard lable="Nope" value={1} />
+</section>;
+''';
+    final uri = Uri.file('${workspace.path}/lib/broken.dartx').toString();
+    editor.open(uri, source);
+
+    await eventually(() => editor.diagnosticsFor(uri).length >= 2);
+    final reported = editor.diagnosticsFor(uri);
+    final messages = reported.map((d) => '${d['message']}').toList();
+
+    expect(
+        messages,
+        contains(allOf(contains("'String'"), contains("'int'"))),
+        reason: 'the analyser sees the generated Dart; the person sees this '
+            'file, and the error has to arrive here');
+    expect(messages, contains(contains('lable')));
+
+    int lineOf(bool Function(String) matching) => reported
+        .firstWhere((d) => matching('${d['message']}'))
+        .let((d) => ((d['range'] as Map)['start'] as Map)['line'] as int);
+
+    expect(lineOf((m) => m.contains("'String'")), 5,
+        reason: 'the wrong argument is on the line that wrote it');
+    expect(lineOf((m) => m.contains('lable')), 6);
+  });
+
+  test('go to definition on a component opens the component, not the '
+      'generated props type', () async {
+    const source = '''import 'package:reactx/reactx.dart';
+
+import 'card.dartx.dart';
+
+Component Page({required int done}) => <section>
+  <StatCard label="Done" value={done} />
+</section>;
+''';
+    final uri = Uri.file('${workspace.path}/lib/page.dartx').toString();
+    editor.open(uri, source);
+    await eventually(() => true, limit: const Duration(seconds: 8));
+
+    final line = source.split('\n')[5];
+    final response = await editor.request('textDocument/definition', {
+      'textDocument': {'uri': uri},
+      'position': {'line': 5, 'character': line.indexOf('StatCard') + 2},
+    });
+
+    final locations = response['result'] as List?;
+    expect(locations, isNotNull);
+    expect(locations, isNotEmpty);
+
+    final target = locations!.first as Map;
+    expect(target['uri'], endsWith('card.dartx'),
+        reason: 'a generated file is not somewhere a person should be sent');
+    // `Component StatCard(` — the declaration, not the appended props class.
+    expect(((target['range'] as Map)['start'] as Map)['line'], 2);
+  });
+
+  test('hover on an argument reports the type the component declared',
+      () async {
+    const source = '''import 'package:reactx/reactx.dart';
+
+import 'card.dartx.dart';
+
+Component Page({required int done}) => <section>
+  <StatCard label="Done" value={done} />
+</section>;
+''';
+    final uri = Uri.file('${workspace.path}/lib/hover.dartx').toString();
+    editor.open(uri, source);
+    await eventually(() => true, limit: const Duration(seconds: 8));
+
+    final line = source.split('\n')[5];
+    final response = await editor.request('textDocument/hover', {
+      'textDocument': {'uri': uri},
+      'position': {'line': 5, 'character': line.indexOf('done')},
+    });
+
+    final contents = jsonEncode(response['result']);
+    expect(contents, contains('int'));
+    // The range comes back in .dartx coordinates, not the generated file's.
+    final range = (response['result'] as Map)['range'];
+    if (range != null) {
+      expect(((range as Map)['start'] as Map)['line'], 5);
+    }
+  });
+}
+
+extension<T> on T {
+  R let<R>(R Function(T) f) => f(this);
+}

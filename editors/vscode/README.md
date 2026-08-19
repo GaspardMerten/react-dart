@@ -4,8 +4,8 @@ Editor support for `.dartx` files — Dart with JSX-style markup, from the
 [reactx](https://github.com/gaspardmerten/react-dart) package.
 
 ```dart
-VNode Counter(Props props) {
-  final (count, setCount) = useState(0);
+Component Counter({int start = 0}) {
+  final (count, setCount) = useState(start);
 
   return (
     <section class="counter">
@@ -21,11 +21,43 @@ VNode Counter(Props props) {
 
 | | |
 |---|---|
+| **Type errors, inline** | `<StatCard value={'three'} />` is underlined in the `.dartx`, on the line that wrote it — the Dart analyser's own message, not an approximation of one. |
+| **Go to definition** | On `<StatCard>`, jumps to `Component StatCard(…)` in the `.dartx` that declares it. |
+| **Hover** | The declared type of an argument, from the analyser. |
 | **Highlighting** | Tags, attributes, entities and embedded Dart, with the Dart grammar handling everything outside the markup. |
-| **Live diagnostics** | Markup errors underlined as you type, with the same messages the build produces. |
+| **Markup diagnostics** | The transpiler's own errors — a mismatched closing tag, a spread on a component — which the analyser cannot produce because it never sees the markup. |
 | **Tag editing** | `>` closes the tag you just opened; `</` completes the innermost open one. |
-| **Snippets** | `comp`, `compstate`, `ust`, `uef`, `frag`, `map`, … |
+| **Snippets** | `comp`, `compstate`, `compmemo`, `compchildren`, `route`, `ust`, `uef`, `frag`, `map`, … |
 | **Commands** | Run `build_runner` build/watch, compile the current file, open the generated Dart beside it. |
+
+## How the language features work
+
+There is no second analyser. `dart run reactx:dartx_lsp` sits between the editor
+and **Dart's own analysis server** and translates:
+
+```
+  editor  ──  Page.dartx, line 5  ──▶  dartx lsp
+                                          │  transpile, map the position
+                                          ▼
+  dart language-server  ◀──  Page.dartx.dart, line 5
+                                          │
+  editor  ◀──  an error on Page.dartx line 5  ──┘
+```
+
+The translation rests on the transpiler preserving line numbers exactly, so
+only the column has to be recovered — which it does by identifier, since the
+order of identifiers on a line survives compilation.
+
+Two honest limits:
+
+* **Completion while you are mid-tag does not work yet.** `<StatCard ` is not
+  valid markup until it is closed, so there is nothing to compile and nothing to
+  ask the analyser about. Completion inside a complete element does work.
+* A component name resolves through its generated props type, so *find all
+  references* on one reports the generated call sites.
+
+Turn the whole thing off with `dartx.languageServer.enabled` and the extension
+falls back to markup-only checking.
 
 ## Requirements
 
