@@ -423,9 +423,14 @@ async function startLanguageServer(context) {
   }
 
   const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+  // A log on disk, because the interesting failures are in traffic nobody is
+  // watching at the moment they happen.
+  const logFile = folder
+    ? path.join(folder.uri.fsPath, '.dart_tool', 'dartx-lsp.log')
+    : null;
   const server = {
     command: config().get('dartPath', 'dart'),
-    args: ['run', 'reactx:dartx_lsp'],
+    args: ['run', 'reactx:dartx_lsp', ...(logFile ? ['--log', logFile] : [])],
     transport: TransportKind.stdio,
     options: { cwd: folder && folder.uri.fsPath },
   };

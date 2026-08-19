@@ -430,6 +430,50 @@ Component Board() => <section>
     expect(keys.toSet().length, keys.length, reason: 'duplicates: $keys');
   });
 
+  test('clicking a declaration declines, so the editor offers the usages',
+      () async {
+    // Ctrl-clicking a component's own name is how people ask "where is this
+    // used". The editor only falls back to showing references when definition
+    // finds nothing — answer with the line the cursor is already on and it
+    // considers the jump done and sits still.
+    final cardUri = Uri.file('${workspace.path}/lib/card.dartx').toString();
+    final card = File('${workspace.path}/lib/card.dartx').readAsStringSync();
+    editor.open(cardUri, card);
+    await eventually(() => true, limit: const Duration(seconds: 10));
+
+    final lines = card.split('\n');
+    final row = lines.indexWhere((l) => l.contains('Component StatCard'));
+    final response = await editor.request('textDocument/definition', {
+      'textDocument': {'uri': cardUri},
+      'position': {'line': row, 'character': lines[row].indexOf('StatCard') + 2},
+    });
+
+    expect(response['result'], isNull,
+        reason: 'a definition that points at the cursor is not a destination');
+  });
+
+  test('a definition somewhere else is still answered', () async {
+    // The decline above must not swallow the useful case.
+    const source = '''import 'package:reactx/reactx.dart';
+
+import 'card.dartx.dart';
+
+Component Elsewhere() => <section>
+  <StatCard label="Done" value={1} />
+</section>;
+''';
+    final uri = Uri.file('${workspace.path}/lib/elsewhere.dartx').toString();
+    editor.open(uri, source);
+    await eventually(() => true, limit: const Duration(seconds: 10));
+
+    final line = source.split('\n')[5];
+    final response = await editor.request('textDocument/definition', {
+      'textDocument': {'uri': uri},
+      'position': {'line': 5, 'character': line.indexOf('StatCard') + 2},
+    });
+    expect(response['result'], isNotEmpty);
+  });
+
   test('hover on an argument reports the type the component declared',
       () async {
     const source = '''import 'package:reactx/reactx.dart';

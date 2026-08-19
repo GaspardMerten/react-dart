@@ -48,6 +48,14 @@ final class _Document {
   int version = 1;
 }
 
+/// A question asked about a `.dartx`, kept until its answer comes back.
+final class _Asked {
+  const _Asked({required this.method, required this.uri, required this.spot});
+  final String method;
+  final String uri;
+  final Spot spot;
+}
+
 /// Requests whose params carry a `textDocument/position` pair the analyser
 /// answers in terms of the generated file, and whose results carry locations
 /// that have to come back.
@@ -103,7 +111,7 @@ class DartxLanguageServer {
   /// Requests translated on the way out, by id, so their answers can be
   /// translated on the way back. A hover's range has no URI beside it to say
   /// which file it belongs to — the question it answers is the only record.
-  final Map<Object, String> _inFlight = {};
+  final Map<Object, _Asked> _inFlight = {};
 
   void _log(String message) => logSink?.writeln('[dartx-lsp] $message');
 
@@ -139,6 +147,12 @@ class DartxLanguageServer {
 
   void _fromEditor(Map<String, Object?> message) {
     final method = message['method'] as String?;
+    if (method != null) {
+      final uri = ((message['params'] as Map?)?['textDocument']
+          as Map?)?['uri'] as String?;
+      _log('<- editor $method${message['id'] == null ? '' : ' #${message['id']}'}'
+          '${uri == null ? '' : ' ${uri.split('/').last}'}');
+    }
 
     if (method == 'initialize') _initializeId = message['id'];
 
@@ -154,8 +168,14 @@ class DartxLanguageServer {
       final id = message['id'];
       final uri = ((message['params'] as Map?)?['textDocument']
           as Map?)?['uri'] as String?;
+      final position = (message['params'] as Map?)?['position'] as Map?;
       if (id != null && uri != null && uri.endsWith('.dartx')) {
-        _inFlight[id] = uri;
+        _inFlight[id] = _Asked(
+          method: method,
+          uri: uri,
+          spot: Spot(position?['line'] as int? ?? 0,
+              position?['character'] as int? ?? 0),
+        );
       }
       // A question has to be answered about what is on screen now, so anything
       // still waiting goes first.
@@ -377,11 +397,28 @@ class DartxLanguageServer {
     // generated coordinates, and a hover's range has no URI beside it to give
     // that away. The request it answers is what identifies the file.
     final asked = _inFlight.remove(message['id']);
-    final document = asked == null ? null : _documents[asked];
+    final document = asked == null ? null : _documents[asked.uri];
 
     var answer = _mapLocationsBack(message);
     if (document != null) answer = _mapBareRanges(document, answer);
-    _toEditor(_dedupeLocations(answer));
+    answer = _dedupeLocations(answer);
+
+    // Going to the definition of a definition has nowhere to go. Saying so —
+    // rather than answering with the line the cursor is already on — is what
+    // lets the editor fall back to its alternative, which by default is
+    // "show me where this is used". That is the whole interaction behind
+    // Ctrl-clicking a component's name.
+    if (asked != null && asked.method == 'textDocument/definition') {
+      answer = _nullIfSelf(asked, answer);
+    }
+
+    if (asked != null) {
+      final result = (answer as Map<String, Object?>)['result'];
+      final size = result is List ? '${result.length} item(s)' : '$result';
+      _log('-> editor #${message['id']} for ${asked.uri.split('/').last}: '
+          '${size.length > 120 ? '${size.substring(0, 120)}…' : size}');
+    }
+    _toEditor(answer);
   }
 
   /// Collapses locations that became identical on the way back.
@@ -612,6 +649,31 @@ class DartxLanguageServer {
         PositionMap(source: source, generated: compiled.code!));
     _onDisk[sourceUri] = document;
     return document;
+  }
+
+  /// Replaces an answer that only points back at the question.
+  Object? _nullIfSelf(_Asked asked, Object? answer) {
+    if (answer is! Map<String, Object?>) return answer;
+    final result = answer['result'];
+    if (result is! List || result.isEmpty) return answer;
+
+    for (final entry in result) {
+      if (entry is! Map) return answer;
+      if (entry['uri'] != asked.uri && entry['targetUri'] != asked.uri) {
+        return answer; // somewhere else: a real destination
+      }
+      final range = (entry['targetSelectionRange'] ?? entry['range']) as Map?;
+      final start = range?['start'] as Map?;
+      final end = range?['end'] as Map?;
+      if (start == null || end == null) return answer;
+      if (start['line'] != asked.spot.line) return answer;
+      // The cursor has to be inside the range it was handed back.
+      final from = start['character'] as int? ?? 0;
+      final to = end['character'] as int? ?? 0;
+      if (asked.spot.column < from || asked.spot.column > to) return answer;
+    }
+
+    return {...answer, 'result': null};
   }
 
   /// Maps `range` entries that are not part of a location.

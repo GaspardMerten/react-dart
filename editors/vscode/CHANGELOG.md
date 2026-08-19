@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.6
+
+* Ctrl-clicking a component's own name now offers its usages. It used to answer
+  "the definition is the line you are on", which the editor takes as a
+  successful jump — so it sat still instead of falling back to references.
+* The server writes a log to `.dart_tool/dartx-lsp.log`, which is how the above
+  was found.
+
 ## 0.2.4
 
 * Fixed: Ctrl-click still did nothing. VS Code asks for definitions as *links*,
