@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.12
+
+* Fixed: completion still showed nothing. Stripping each item's edit range was
+  not enough — a completion *list* can carry one default range that stands in
+  for every item without its own, and that one was still measured in the
+  generated file.
+
 ## 0.2.11
 
 * Fixed: "the dartx transpiler could not be run" on startup. The old

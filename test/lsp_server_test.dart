@@ -613,6 +613,14 @@ import 'card.dartx.dart';
           expect((item as Map)['textEdit'], isNull, reason: '$at');
           expect(item['textEditText'], isNull, reason: '$at');
         }
+        // A completion *list* can carry one edit range standing in for every
+        // item without its own, so stripping them item by item is not enough.
+        if (result is Map) {
+          final defaults = result['itemDefaults'];
+          if (defaults is Map) {
+            expect(defaults['editRange'], isNull, reason: '$at');
+          }
+        }
       }
     });
 

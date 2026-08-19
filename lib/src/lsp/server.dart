@@ -1005,7 +1005,26 @@ class DartxLanguageServer {
           raw
     ];
 
-    return result is Map ? {...result, 'items': cleaned} : cleaned;
+    if (result is! Map) return cleaned;
+
+    // A completion *list* can carry one edit range that stands in for every
+    // item that does not bring its own — so removing them item by item is not
+    // enough, and this is the one that was still being applied. The rest of
+    // `itemDefaults` (commit characters, insert format) is not positional and
+    // is worth keeping.
+    final defaults = result['itemDefaults'];
+    final trimmed = defaults is Map
+        ? (Map<String, Object?>.from(defaults)
+          ..remove('editRange')
+          ..remove('insertTextMode'))
+        : null;
+
+    return {
+      ...result,
+      'items': cleaned,
+      if (trimmed != null && trimmed.isNotEmpty) 'itemDefaults': trimmed,
+      if (trimmed != null && trimmed.isEmpty) 'itemDefaults': null,
+    }..removeWhere((key, value) => key == 'itemDefaults' && value == null);
   }
 
   /// Turns props types back into the components they stand for.
