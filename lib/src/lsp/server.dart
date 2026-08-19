@@ -89,6 +89,17 @@ class DartxLanguageServer {
   /// way back.
   Object? _initializeId;
 
+  /// Changes not yet handed to the analyser, by URI. Typing produces one of
+  /// these per keystroke, and each one costs a full re-analysis of the library
+  /// — the generated Dart is produced by compiling the whole buffer, so there
+  /// is no cheaper edit to send. Batching them is the difference between one
+  /// re-analysis per pause and one per character.
+  final Map<String, Timer> _pendingSync = {};
+  final Map<String, Map<String, Object?>> _queuedSync = {};
+
+  /// How long to wait for typing to stop.
+  static const _syncDelay = Duration(milliseconds: 300);
+
   /// Requests translated on the way out, by id, so their answers can be
   /// translated on the way back. A hover's range has no URI beside it to say
   /// which file it belongs to — the question it answers is the only record.
@@ -146,6 +157,9 @@ class DartxLanguageServer {
       if (id != null && uri != null && uri.endsWith('.dartx')) {
         _inFlight[id] = uri;
       }
+      // A question has to be answered about what is on screen now, so anything
+      // still waiting goes first.
+      if (uri != null) _flushSync(uri);
       final translated = _translateRequest(message);
       // A position that does not survive compilation has no answer; say so
       // rather than sending the analyser a question about the wrong place.
@@ -176,6 +190,8 @@ class DartxLanguageServer {
 
     if (method == 'textDocument/didClose') {
       _documents.remove(uri);
+      _pendingSync.remove(uri)?.cancel();
+      _queuedSync.remove(uri);
       _toAnalyser({
         'jsonrpc': '2.0',
         'method': 'textDocument/didClose',
@@ -206,7 +222,7 @@ class DartxLanguageServer {
     if (existing != null) document.version++;
     _documents[uri] = document;
 
-    _toAnalyser({
+    _queueForAnalyser(uri, {
       'jsonrpc': '2.0',
       'method': existing == null
           ? 'textDocument/didOpen'
@@ -231,7 +247,30 @@ class DartxLanguageServer {
             },
     });
 
+    // The transpiler's own errors are local and instant, so they are published
+    // straight away rather than waiting for the analyser.
     _publishDartxDiagnostics(uri, compiled);
+  }
+
+  /// Holds [message] until typing stops, replacing any earlier one for [uri].
+  ///
+  /// An opening is sent immediately: nothing can be asked about a document the
+  /// analyser has not been told exists.
+  void _queueForAnalyser(String uri, Map<String, Object?> message) {
+    if (message['method'] == 'textDocument/didOpen') {
+      _toAnalyser(message);
+      return;
+    }
+    _queuedSync[uri] = message;
+    _pendingSync[uri]?.cancel();
+    _pendingSync[uri] = Timer(_syncDelay, () => _flushSync(uri));
+  }
+
+  /// Hands the analyser whatever is waiting for [uri].
+  void _flushSync(String uri) {
+    _pendingSync.remove(uri)?.cancel();
+    final queued = _queuedSync.remove(uri);
+    if (queued != null) _toAnalyser(queued);
   }
 
   /// The transpiler's own errors, which the analyser can never produce because

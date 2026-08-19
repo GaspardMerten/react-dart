@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.3
+
+* Changes are batched before they reach the analysis server. Each one costs a
+  full re-analysis — the generated Dart comes from compiling the whole buffer,
+  so there is no smaller edit to send — and one per keystroke was one
+  re-analysis per keystroke. Markup errors are still instant.
+* `dartx.languageServer.enabled` now says what it costs: a second Dart analysis
+  server, alongside the one the Dart extension runs.
+
 ## 0.2.2
 
 * Fixed: "couldn't create connection to server" / "Server initialization

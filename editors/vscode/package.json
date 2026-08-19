@@ -2,7 +2,7 @@
   "name": "dartx",
   "displayName": "dartx — JSX for Dart",
   "description": "Syntax highlighting, live diagnostics, tag closing and snippets for .dartx files (Dart with JSX-style markup, from the reactx package).",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "publisher": "reactx",
   "license": "MIT",
   "engines": {
@@ -115,7 +115,7 @@
         "dartx.languageServer.enabled": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Run the dartx language server, which proxies to the Dart analysis server so that `.dartx` files get real type errors, hover and go-to-definition. Turn it off to fall back to markup-only checking."
+          "markdownDescription": "Run the dartx language server, which gives `.dartx` files real type errors, hover, go-to-definition and find-references by proxying to the Dart analysis server.\n\n**It starts a second analysis server**, alongside the one the Dart extension already runs — roughly 500 MB and a core of its own. On a large workspace that is felt. Turn this off to fall back to markup-only checking, which costs almost nothing."
         },
         "dartx.transpilerArgs": {
           "type": "array",
