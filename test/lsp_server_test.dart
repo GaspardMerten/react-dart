@@ -529,6 +529,97 @@ Component Wall() => <section>
             'standing behind it in its own file');
   });
 
+  group('completion', () {
+    Future<List<String>> complete(String name, String text, int line, int ch) async {
+      final uri = Uri.file('${workspace.path}/lib/$name.dartx').toString();
+      editor.open(uri, text);
+      await eventually(() => true, limit: const Duration(seconds: 8));
+      final response = await editor.request('textDocument/completion', {
+        'textDocument': {'uri': uri},
+        'position': {'line': line, 'character': ch},
+      });
+      final result = response['result'];
+      final items = result is Map ? result['items'] as List? : result as List?;
+      return (items ?? const []).map((i) => '${(i as Map)['label']}').toList();
+    }
+
+    const header = '''import 'package:reactx/reactx.dart';
+
+import 'card.dartx.dart';
+
+''';
+
+    test('an identifier inside an expression completes as Dart', () async {
+      final labels = await complete('c1',
+          '${header}Component P() {\n  final state = 3;\n'
+          '  return <div>{sta}</div>;\n}\n', 6, 18);
+      expect(labels, contains('state'));
+    });
+
+    test('a member after a dot completes as members, not as keywords',
+        () async {
+      // The cursor after `s.` is not on an identifier, so it has to anchor on
+      // the one before the dot and keep the distance — otherwise it lands at
+      // the start of the line and the analyser offers `if` and `return`.
+      final labels = await complete('c2',
+          '${header}Component P() {\n  final s = "x";\n'
+          '  return <div>{s.}</div>;\n}\n', 6, 17);
+      expect(labels, contains('length'));
+      expect(labels, isNot(contains('return')));
+    });
+
+    test('an unclosed tag offers the component\'s own attributes', () async {
+      // `<StatCard ` is not valid markup, so nothing compiles and there is
+      // nothing to ask about — which is exactly when someone wants to know
+      // what the attributes are. The buffer is repaired for one question.
+      final labels = await complete('c3',
+          '${header}Component P() => <section>\n  <StatCard \n</section>;\n',
+          5, 12);
+      expect(labels, containsAll(<String>['label: ', 'value: ']));
+    });
+
+    test('a half-typed tag offers components, named as markup names them',
+        () async {
+      final labels = await complete('c4',
+          '${header}Component P() => <section>\n  <Stat\n</section>;\n', 5, 7);
+      expect(labels, contains('StatCard'));
+      expect(labels, everyElement(isNot(endsWith('Props'))),
+          reason: 'the generated type is not what belongs in the markup');
+    });
+
+    test('a host element is left to the editor', () async {
+      // `<div ` attributes are the HTML spec's; the analyser only sees a map
+      // with string keys and has nothing useful to say.
+      final labels = await complete('c5',
+          '${header}Component P() => <section>\n  <div \n</section>;\n', 5, 7);
+      expect(labels, isEmpty);
+    });
+
+    test('asking does not disturb the document the editor holds', () async {
+      // The repair is for one question. If it were left behind, the next
+      // diagnostics would describe a file nobody wrote.
+      const source = '''${header}Component P() => <section>
+  <StatCard label="a" value={1} />
+</section>;
+''';
+      final uri = Uri.file('${workspace.path}/lib/c6.dartx').toString();
+      editor.open(uri, source);
+      await eventually(() => true, limit: const Duration(seconds: 8));
+
+      await editor.request('textDocument/completion', {
+        'textDocument': {'uri': uri},
+        'position': {'line': 5, 'character': 12},
+      });
+
+      final definition = await editor.request('textDocument/definition', {
+        'textDocument': {'uri': uri},
+        'position': {'line': 5, 'character': 5},
+      });
+      expect(definition['result'], isNotEmpty,
+          reason: 'the real document has to be what the analyser holds again');
+    });
+  });
+
   test('hover on an argument reports the type the component declared',
       () async {
     const source = '''import 'package:reactx/reactx.dart';

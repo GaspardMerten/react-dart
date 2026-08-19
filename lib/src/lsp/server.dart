@@ -48,6 +48,18 @@ final class _Document {
   int version = 1;
 }
 
+/// Where the cursor is, when it is inside a tag rather than inside Dart.
+final class _TagContext {
+  const _TagContext({required this.name, required this.completingName});
+
+  /// The tag being written, as far as it has been typed.
+  final String name;
+
+  /// Whether the cursor is still in the name itself (`<Sta`) rather than past
+  /// it in the attribute list (`<StatCard `).
+  final bool completingName;
+}
+
 /// `Component Name(` — a component's declaration, wherever it appears.
 final _componentDeclaration = RegExp(r'\bComponent\s+([A-Za-z_$][\w$]*)\s*[(<]');
 
@@ -171,6 +183,10 @@ class DartxLanguageServer {
         return;
     }
 
+    if (method == 'textDocument/completion') {
+      unawaited(_complete(message));
+      return;
+    }
     if (method == 'textDocument/codeLens') {
       _lensesFor(message);
       return;
@@ -829,6 +845,166 @@ class DartxLanguageServer {
     output.add(frame(message));
   }
 
+  // -- Completion -----------------------------------------------------------
+
+  /// Answers a completion request, repairing the markup first when the cursor
+  /// is somewhere that does not compile.
+  ///
+  /// Inside `{…}` the file is ordinary Dart and the analyser needs no help.
+  /// Inside a tag it is not: `<StatCard ` is not valid markup until it is
+  /// closed, so there is nothing to compile and nothing to ask about — which is
+  /// exactly the moment someone wants to be told what the attributes are.
+  ///
+  /// So for that one case the buffer is repaired for the length of a single
+  /// question: `/>` is inserted at the cursor, the result is compiled, and the
+  /// analyser is asked about the argument list of the props type. The document
+  /// the editor holds is untouched.
+  Future<void> _complete(Map<String, Object?> message) async {
+    final params = message['params'] as Map<String, Object?>? ?? const {};
+    final uri = (params['textDocument'] as Map?)?['uri'] as String?;
+    final position = params['position'] as Map?;
+    final document = uri == null ? null : _documents[uri];
+
+    if (document == null || position == null) {
+      _toEditor(_translateRequest(message) == null
+          ? {'jsonrpc': '2.0', 'id': message['id'], 'result': null}
+          : message);
+      return;
+    }
+
+    final spot = Spot(position['line'] as int? ?? 0,
+        position['character'] as int? ?? 0);
+    final tag = _tagAround(document.source, spot);
+
+    if (tag == null) {
+      // Ordinary Dart, or text: the usual translation is right.
+      final translated = _translateRequest(message);
+      if (translated == null) {
+        _toEditor({'jsonrpc': '2.0', 'id': message['id'], 'result': null});
+        return;
+      }
+      _inFlight[message['id']!] = _Asked(
+          method: 'textDocument/completion', uri: uri!, spot: spot);
+      _toAnalyser(translated);
+      return;
+    }
+
+    final repaired = _repair(document.source, spot);
+    final compiled = transpileDartx(repaired, uri: uri);
+    if (!compiled.ok) {
+      _toEditor({'jsonrpc': '2.0', 'id': message['id'], 'result': null});
+      return;
+    }
+
+    // The repaired document has to be what the analyser is looking at, and
+    // then put back — a question must not leave the editor's copy behind.
+    _toAnalyser({
+      'jsonrpc': '2.0',
+      'method': 'textDocument/didChange',
+      'params': {
+        'textDocument': {'uri': _generatedUri(uri!), 'version': ++document.version},
+        'contentChanges': [
+          {'text': compiled.code}
+        ],
+      },
+    });
+
+    final at = tag.completingName
+        ? _componentNameSpot(compiled.code!, spot, tag.name)
+        : _argumentListSpot(compiled.code!, spot, tag.name);
+
+    Map<String, Object?> answer = const {'result': null};
+    if (at != null) {
+      answer = await _ask('textDocument/completion', {
+        'textDocument': {'uri': _generatedUri(uri)},
+        'position': {'line': at.line, 'character': at.column},
+      });
+    }
+
+    // Put the real document back before anything else asks about it.
+    _toAnalyser({
+      'jsonrpc': '2.0',
+      'method': 'textDocument/didChange',
+      'params': {
+        'textDocument': {'uri': _generatedUri(uri), 'version': ++document.version},
+        'contentChanges': [
+          {'text': document.generated}
+        ],
+      },
+    });
+
+    _toEditor({
+      'jsonrpc': '2.0',
+      'id': message['id'],
+      'result': tag.completingName
+          ? _asComponents(answer['result'])
+          : answer['result'],
+    });
+  }
+
+  /// Closes the tag the cursor is inside, so the file compiles.
+  static String _repair(String source, Spot spot) {
+    final lines = source.split('\n');
+    final line = lines[spot.line];
+    final column = spot.column.clamp(0, line.length);
+    lines[spot.line] =
+        '${line.substring(0, column)}/>${line.substring(column)}';
+    return lines.join('\n');
+  }
+
+  /// The generated position just inside `NameProps(`, where the analyser will
+  /// offer the component's named arguments.
+  static Spot? _argumentListSpot(String generated, Spot spot, String name) {
+    final lines = generated.split('\n');
+    if (spot.line >= lines.length) return null;
+    final at = lines[spot.line].indexOf('${name}Props(');
+    if (at < 0) return null;
+    return Spot(spot.line, at + '${name}Props('.length);
+  }
+
+  /// The generated position of the partially-typed props type name.
+  static Spot? _componentNameSpot(String generated, Spot spot, String name) {
+    final lines = generated.split('\n');
+    if (spot.line >= lines.length) return null;
+    final at = lines[spot.line].indexOf('${name}Props');
+    if (at < 0) return null;
+    return Spot(spot.line, at + name.length);
+  }
+
+  /// Turns props types back into the components they stand for.
+  ///
+  /// The analyser is answering about Dart, so it offers `StatCardProps`. In
+  /// markup the thing being typed is `<StatCard`, and inserting the generated
+  /// name would be inserting something that does not belong in the file.
+  Object? _asComponents(Object? result) {
+    final items = result is Map ? result['items'] : result;
+    if (items is! List) return result;
+
+    final components = <Object?>[];
+    for (final raw in items) {
+      if (raw is! Map) continue;
+      final label = '${raw['label']}';
+      if (!label.endsWith('Props')) continue;
+      final name = label.substring(0, label.length - 'Props'.length);
+      if (name.isEmpty) continue;
+
+      final item = Map<String, Object?>.from(raw);
+      item['label'] = name;
+      item['filterText'] = name;
+      item['insertText'] = name;
+      item['detail'] = 'component';
+      // A text edit would carry the generated file's range; the label is what
+      // should be inserted, so anything precomputed is dropped.
+      item.remove('textEdit');
+      item.remove('textEditText');
+      components.add(item);
+    }
+
+    return result is Map
+        ? {...result, 'items': components, 'isIncomplete': false}
+        : components;
+  }
+
   // -- Code lenses ----------------------------------------------------------
 
   /// One lens per component in the file, above its declaration.
@@ -922,6 +1098,35 @@ class DartxLanguageServer {
     };
 
     _toEditor({'jsonrpc': '2.0', 'id': message['id'], 'result': lens});
+  }
+
+  /// The tag the cursor sits inside, or null when it sits in Dart or in text.
+  ///
+  /// Scans back from the cursor for a `<` with no `>` after it. Only component
+  /// tags are reported: a host element's attributes are the HTML spec's, and
+  /// the analyser has nothing to say about a map with string keys.
+  static _TagContext? _tagAround(String source, Spot spot) {
+    final lines = source.split('\n');
+    if (spot.line >= lines.length) return null;
+    final line = lines[spot.line];
+    final column = spot.column.clamp(0, line.length);
+    final before = line.substring(0, column);
+
+    final open = before.lastIndexOf('<');
+    if (open < 0) return null;
+    if (before.indexOf('>', open) >= 0) return null; // the tag already closed
+    if (before.startsWith('</', open)) return null;
+
+    final after = before.substring(open + 1);
+    final name = RegExp(r'^[A-Za-z_\$][\w\$.]*').stringMatch(after) ?? '';
+    if (name.isEmpty) return null;
+    // Lowercase is a host element; its attributes are HTML's, not Dart's.
+    if (name[0].toLowerCase() == name[0] && !name.startsWith('_')) return null;
+
+    return _TagContext(
+      name: name,
+      completingName: after.length == name.length,
+    );
   }
 
   /// Puts a question of our own to the analyser and waits for the answer.

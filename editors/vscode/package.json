@@ -2,7 +2,7 @@
   "name": "dartx",
   "displayName": "dartx — JSX for Dart",
   "description": "Syntax highlighting, live diagnostics, tag closing and snippets for .dartx files (Dart with JSX-style markup, from the reactx package).",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "publisher": "reactx",
   "license": "MIT",
   "engines": {

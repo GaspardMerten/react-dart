@@ -70,14 +70,20 @@ final class PositionMap {
     if (spot.line < 0 || spot.line >= from.length) return null;
     if (spot.line >= to.length) return null;
 
-    final word = _wordAt(from[spot.line], spot.column);
+    final word = _anchorAt(from[spot.line], spot.column);
     // Not on an identifier — punctuation, whitespace. The line is right and
     // that is all that can be said, so say exactly that.
     if (word == null) return Spot(spot.line, 0);
 
+    // Where the cursor sits *inside* the word, which is the whole question for
+    // completion: on `s.` the answer is the members of `s`, and on `s` it is
+    // every name in scope. Landing on the start of the identifier turns the
+    // first question into the second.
+    final offset = spot.column - word.start;
+
     final occurrence = _occurrenceOf(from[spot.line], word.start, word.text);
     final target = _nthOccurrence(to[spot.line], word.text, occurrence);
-    if (target != null) return Spot(spot.line, target);
+    if (target != null) return Spot(spot.line, target + offset);
 
     // The identifier was rewritten, and there is exactly one rewrite the
     // emitter performs on identifiers, in both directions.
@@ -85,7 +91,7 @@ final class PositionMap {
     // Going out: `<StatCard …>` emits `StatCardProps(…)`, so the source name is
     // a prefix of the generated one.
     final grown = _nthOccurrence(to[spot.line], word.text, 0, prefix: true);
-    if (grown != null) return Spot(spot.line, grown);
+    if (grown != null) return Spot(spot.line, grown + offset);
 
     // Coming back: a reference the analyser found on `StatCardProps` belongs,
     // for a person reading the `.dartx`, to the `<StatCard>` that produced it.
@@ -94,7 +100,12 @@ final class PositionMap {
           word.text.substring(0, word.text.length - _propsSuffix.length);
       if (component.isNotEmpty) {
         final shrunk = _nthOccurrence(to[spot.line], component, 0);
-        if (shrunk != null) return Spot(spot.line, shrunk);
+        // The name got shorter, so an offset past its end has to come back to
+        // the end rather than run into whatever follows.
+        if (shrunk != null) {
+          return Spot(spot.line,
+              shrunk + (offset > component.length ? component.length : offset));
+        }
       }
     }
 
@@ -112,6 +123,24 @@ final class PositionMap {
 
   /// Every line of the `.dartx`, for callers that need to look around.
   int get sourceLineCount => _sourceLines.length;
+
+  /// The identifier the cursor is anchored to, reaching back across dots.
+  ///
+  /// A cursor sitting after `s.` is not on an identifier at all, but the
+  /// question it is asking — *what are the members of `s`* — is answered by
+  /// mapping `s` and keeping the distance. Without this, a member completion
+  /// lands at the start of the line and the analyser offers keywords.
+  static _Word? _anchorAt(String line, int column) {
+    final here = _wordAt(line, column);
+    if (here != null) return here;
+
+    var i = column.clamp(0, line.length) - 1;
+    while (i >= 0 && line.codeUnitAt(i) == 0x2e) {
+      i--;
+    }
+    if (i < 0 || !_isWordChar(line.codeUnitAt(i))) return null;
+    return _wordAt(line, i);
+  }
 
   /// The identifier containing or immediately before [column].
   static _Word? _wordAt(String line, int column) {

@@ -2,6 +2,23 @@
 
 ## 0.3.0
 
+**Completion in markup.** Typing inside a `{…}` expression always worked, since
+that is ordinary Dart. Three places it did not:
+
+* a member after a dot returned keywords, because the cursor is not on an
+  identifier there and the mapping had nothing to anchor to;
+* an unclosed `<StatCard ` returned nothing, because incomplete markup does not
+  compile — which is the exact moment someone wants to know the attributes;
+* a half-typed `<Stat` returned nothing, for the same reason.
+
+The last two are answered by repairing the buffer for the length of one
+question — `/>` is inserted at the cursor, that is compiled, and the analyser is
+asked about the props type's argument list — then putting the real document
+back. Component suggestions are renamed from the generated `StatCardProps` to
+the `StatCard` that belongs in markup. A host element is left alone: its
+attributes are the HTML spec's, and the analyser only sees a map with string
+keys.
+
 **Scoped styles.** A stylesheet marked `@scoped` belongs to the components in
 its own file and cannot reach anything else:
 

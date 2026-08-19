@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.9
+
+* Completion, in the three places it was missing. Typing inside an expression
+  already worked; now a member after a dot completes as members rather than
+  keywords, an unclosed `<StatCard ` offers that component's own attributes,
+  and a half-typed `<Stat` offers the components — named as markup names them,
+  not as the generated props types.
+* Emmet works in `.dartx`.
+
 ## 0.2.7
 
 * A **"N usages"** lens above every component declaration. Clicking it peeks
