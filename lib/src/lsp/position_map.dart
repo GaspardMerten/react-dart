@@ -79,13 +79,39 @@ final class PositionMap {
     final target = _nthOccurrence(to[spot.line], word.text, occurrence);
     if (target != null) return Spot(spot.line, target);
 
-    // The identifier was rewritten. A component name grows a suffix, which is
-    // the one rewrite worth following: `StatCard` -> `StatCardProps`.
+    // The identifier was rewritten, and there is exactly one rewrite the
+    // emitter performs on identifiers, in both directions.
+    //
+    // Going out: `<StatCard …>` emits `StatCardProps(…)`, so the source name is
+    // a prefix of the generated one.
     final grown = _nthOccurrence(to[spot.line], word.text, 0, prefix: true);
     if (grown != null) return Spot(spot.line, grown);
 
+    // Coming back: a reference the analyser found on `StatCardProps` belongs,
+    // for a person reading the `.dartx`, to the `<StatCard>` that produced it.
+    if (word.text.endsWith(_propsSuffix)) {
+      final component =
+          word.text.substring(0, word.text.length - _propsSuffix.length);
+      if (component.isNotEmpty) {
+        final shrunk = _nthOccurrence(to[spot.line], component, 0);
+        if (shrunk != null) return Spot(spot.line, shrunk);
+      }
+    }
+
     return null;
   }
+
+  /// The identifier at [spot] in the `.dartx`, or null when there is none.
+  ///
+  /// Used to size a range: an answer about `StatCardProps` covers thirteen
+  /// characters, and the `StatCard` it maps back to covers eight.
+  String? sourceIdentifierAt(Spot spot) {
+    if (spot.line < 0 || spot.line >= _sourceLines.length) return null;
+    return _wordAt(_sourceLines[spot.line], spot.column)?.text;
+  }
+
+  /// Every line of the `.dartx`, for callers that need to look around.
+  int get sourceLineCount => _sourceLines.length;
 
   /// The identifier containing or immediately before [column].
   static _Word? _wordAt(String line, int column) {
@@ -154,6 +180,10 @@ final class PositionMap {
       c == 0x5f ||
       c == 0x24;
 }
+
+/// The suffix the builder appends to a component's name to make its props
+/// type. The one identifier rewrite the emitter performs.
+const _propsSuffix = 'Props';
 
 final class _Word {
   const _Word(this.text, this.start);

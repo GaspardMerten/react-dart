@@ -248,13 +248,55 @@ class DartxLanguageServer {
     final position = params['position'] as Map<String, Object?>?;
     if (document == null || position == null) return message;
 
-    final at = document.map.toGenerated(
-        Spot(position['line'] as int? ?? 0, position['character'] as int? ?? 0));
+    final spot =
+        Spot(position['line'] as int? ?? 0, position['character'] as int? ?? 0);
+
+    final at = _retarget(message['method'] as String?, document, spot) ??
+        document.map.toGenerated(spot);
     if (at == null) return null;
 
     params['textDocument'] = {'uri': _generatedUri(uri)};
     params['position'] = {'line': at.line, 'character': at.column};
     return {...message, 'params': params};
+  }
+
+  /// Where a question about a component should really be asked.
+  ///
+  /// "Find all references to `StatCard`" means, to the person asking, "where is
+  /// `<StatCard>` used". But the markup does not compile to a call to
+  /// `StatCard` — it compiles to `StatCardProps(…)`, and the only thing that
+  /// *does* call the function is the one line of generated machinery inside
+  /// `StatCardProps.build()`. Asking the analyser the literal question returns
+  /// exactly that one line and none of the call sites, which is the opposite of
+  /// what was wanted.
+  ///
+  /// So a references request standing on a component's name is asked about its
+  /// props type instead. Definition and hover are left alone: there the literal
+  /// question is the right one.
+  Spot? _retarget(String? method, _Document document, Spot spot) {
+    if (method != 'textDocument/references') return null;
+
+    final name = document.map.sourceIdentifierAt(spot);
+    if (name == null || name.isEmpty) return null;
+
+    // Only for a name this file actually declares as a component; a `<Foo>`
+    // written here resolves through its own file's declaration anyway.
+    if (!RegExp('\\bComponent\\s+$name\\s*[(<]').hasMatch(document.source)) {
+      return null;
+    }
+    return _classDeclaration(document.generated, '${name}Props');
+  }
+
+  /// The position of `class <name>` in [generated], or null.
+  static Spot? _classDeclaration(String generated, String name) {
+    final pattern = RegExp('\\bclass\\s+$name\\b');
+    final lines = generated.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      final match = pattern.firstMatch(lines[i]);
+      if (match == null) continue;
+      return Spot(i, lines[i].indexOf(name, match.start));
+    }
+    return null;
   }
 
   // -- analyser -> editor ----------------------------------------------------
@@ -264,7 +306,28 @@ class DartxLanguageServer {
       _toEditor(_translateDiagnostics(message));
       return;
     }
-    _toEditor(_mapLocationsBack(message));
+    _toEditor(_dedupeLocations(_mapLocationsBack(message)));
+  }
+
+  /// Collapses locations that became identical on the way back.
+  ///
+  /// Several references in the generated file — the props class and its
+  /// constructor, say — map onto the one line of `.dartx` that produced them.
+  /// Reporting that line three times would be counting machinery, not uses.
+  Object? _dedupeLocations(Object? message) {
+    if (message is! Map<String, Object?>) return message;
+    final result = message['result'];
+    if (result is! List || result.isEmpty) return message;
+
+    final seen = <String>{};
+    final unique = <Object?>[];
+    for (final entry in result) {
+      if (entry is! Map || (entry['uri'] == null && entry['targetUri'] == null)) {
+        return message; // not a location list; leave it alone
+      }
+      if (seen.add(jsonEncode(entry))) unique.add(entry);
+    }
+    return {...message, 'result': unique};
   }
 
   /// Diagnostics the analyser raised against a generated file, moved onto the
@@ -368,11 +431,26 @@ class DartxLanguageServer {
   Map<String, Object?>? _mapRangeBack(_Document document, Object? range) {
     if (range is! Map) return null;
     final start = _mapSpotBack(document, range['start']);
-    if (start != null) {
-      final end = _mapSpotBack(document, range['end']);
-      return {'start': start, 'end': end ?? start};
+    if (start == null) return _declarationBehind(document, range);
+
+    // An answer about `StatCardProps` is thirteen characters wide; the
+    // `StatCard` it lands on is eight. Sizing the range from the identifier
+    // actually under it is what stops the editor highlighting into whatever
+    // follows the tag name.
+    final startSpot = Spot(start['line'] as int, start['character'] as int);
+    final identifier = document.map.sourceIdentifierAt(startSpot);
+    if (identifier != null) {
+      return {
+        'start': start,
+        'end': {
+          'line': startSpot.line,
+          'character': startSpot.column + identifier.length,
+        },
+      };
     }
-    return _declarationBehind(document, range);
+
+    final end = _mapSpotBack(document, range['end']);
+    return {'start': start, 'end': end ?? start};
   }
 
   /// The component declaration behind a generated props type.

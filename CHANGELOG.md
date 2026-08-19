@@ -8,6 +8,11 @@ Dart's own analysis server, so a `.dartx` file gets the analyser's real answers
 without a second analyser existing anywhere. Go to definition on `<StatCard />`
 lands on `Component StatCard(…)`, not on the generated props type.
 
+Find all references on a component lists the markup that uses it. That one is a
+redirection rather than a translation: the markup compiles to `StatCardProps(…)`
+rather than to a call to `StatCard`, so the literal question finds one line of
+generated machinery and no call sites at all.
+
 It works because the transpiler preserves line numbers exactly, which reduces
 position translation to recovering a column; that is done by identifier, since
 compilation preserves the order of identifiers on a line. Completion inside a

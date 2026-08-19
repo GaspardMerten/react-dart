@@ -3,9 +3,10 @@
 ## 0.2.0
 
 * A language server. `.dartx` files now get real Dart type errors inline, go to
-  definition, and hover — answered by Dart's own analysis server, which the
-  extension proxies to rather than reimplementing. Go to definition on a
-  component lands on the component, not on the generated Dart.
+  definition, hover, and find all references — answered by Dart's own analysis
+  server, which the extension proxies to rather than reimplementing. Go to
+  definition on a component lands on the component, and find references lists
+  the markup that uses it, not the generated Dart behind it.
 * Snippets updated to the current component API. `comp` used to emit
   `VNode Name(Props props)`, which the framework no longer uses; new
   `compmemo`, `compchildren` and `route`.

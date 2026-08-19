@@ -363,12 +363,17 @@ opens `Component StatCard(…)` in the file that declares it; and hover reports
 the declared type of an argument. The editor never learns that a generated file
 exists.
 
-That works because the transpiler preserves line numbers exactly, which leaves
-only the column to recover — done by identifier, since compilation preserves
-the order of identifiers on a line. Two limits worth knowing: completion inside
-a complete element works but completion *mid-tag* does not (an unclosed tag has
-nothing to compile), and a component name resolves through its generated props
-type, so *find all references* reports the generated call sites.
+Find all references on a component lists the `<StatCard …>` elements that use
+it. That one needs a redirection rather than a translation: the markup does not
+compile to a call to `StatCard`, it compiles to `StatCardProps(…)`, so asking
+the analyser the literal question finds one line of generated machinery and not
+a single real call site. The request is retargeted onto the props type.
+
+All of it works because the transpiler preserves line numbers exactly, which
+leaves only the column to recover — done by identifier, since compilation
+preserves the order of identifiers on a line. One limit worth knowing:
+completion inside a complete element works, but completion *mid-tag* does not,
+because an unclosed tag has nothing to compile.
 
 On top of that: highlighting, the transpiler's own markup diagnostics (which
 the analyser cannot produce, since it never sees the markup), closing-tag

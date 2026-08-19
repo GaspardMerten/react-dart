@@ -158,4 +158,40 @@ Component Row() => <li>{greeting}</li>;
       expect(wordAt(generated, at), 'greeting');
     });
   });
+
+  group('the props suffix, in both directions', () {
+    const source = '''
+Component Page() => <div>
+  <StatCard label="Done" value={3} />
+</div>;
+''';
+
+    test('a source component name grows into the generated props type', () {
+      final generated =
+          transpileDartx(source, banner: false, props: false).code!;
+      final map = mapFor(source);
+      final at = map.toGenerated(spotOf(source, 'StatCard'))!;
+      expect(wordAt(generated, at), 'StatCardProps');
+    });
+
+    test('and the generated props type shrinks back to the component name', () {
+      // This is the direction find-references needs: the analyser answers
+      // about `StatCardProps`, and the person is looking at `<StatCard>`.
+      final map = mapFor(source);
+
+      final forward = map.toGenerated(spotOf(source, 'StatCard'))!;
+      final back = map.toSource(forward)!;
+      expect(wordAt(source, back), 'StatCard');
+      expect(back, spotOf(source, 'StatCard'),
+          reason: 'the round trip has to land exactly where it started');
+    });
+
+    test('the identifier under a mapped spot is reported, for sizing a range',
+        () {
+      final map = mapFor(source);
+      expect(map.sourceIdentifierAt(spotOf(source, 'StatCard')), 'StatCard');
+      expect(map.sourceIdentifierAt(const Spot(0, 0)), 'Component');
+    });
+  });
+
 }

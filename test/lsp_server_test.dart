@@ -249,6 +249,73 @@ Component Page({required int done}) => <section>
     expect(((target['range'] as Map)['start'] as Map)['line'], 2);
   });
 
+  test('find references on a component reports where the markup uses it',
+      () async {
+    // The literal question — "references to the function `StatCard`" — has the
+    // wrong answer: the markup compiles to `StatCardProps(…)`, so the only
+    // caller of the function is one line of generated machinery, and not one
+    // real call site would be listed. The request is retargeted onto the props
+    // type, which is what the call sites actually name.
+    const page = '''import 'package:reactx/reactx.dart';
+
+import 'card.dartx.dart';
+
+Component Board() => <section>
+  <StatCard label="Done" value={1} />
+  <StatCard label="Left" value={2} />
+</section>;
+''';
+    final pageUri = Uri.file('${workspace.path}/lib/board.dartx').toString();
+    editor.open(pageUri, page);
+
+    final cardUri = Uri.file('${workspace.path}/lib/card.dartx').toString();
+    final card = File('${workspace.path}/lib/card.dartx').readAsStringSync();
+    editor.open(cardUri, card);
+    await eventually(() => true, limit: const Duration(seconds: 10));
+
+    final declarationLine =
+        card.split('\n').indexWhere((l) => l.contains('Component StatCard'));
+    final response = await editor.request('textDocument/references', {
+      'textDocument': {'uri': cardUri},
+      'position': {
+        'line': declarationLine,
+        'character': card.split('\n')[declarationLine].indexOf('StatCard'),
+      },
+      'context': {'includeDeclaration': false},
+    });
+
+    final locations =
+        (response['result'] as List? ?? []).cast<Map<String, Object?>>().toList();
+    expect(locations, isNotEmpty);
+
+    // Nothing generated leaks out.
+    expect(locations.map((l) => l['uri']),
+        everyElement(isNot(endsWith('.dartx.dart'))),
+        reason: 'a generated file is not a place a person can act on');
+
+    final inBoard =
+        locations.where((l) => '${l['uri']}'.endsWith('board.dartx')).toList();
+    expect(inBoard.length, 2,
+        reason: 'both `<StatCard …>` elements are uses of the component');
+    expect(inBoard.map((l) => ((l['range'] as Map)['start'] as Map)['line']),
+        containsAll(<int>[5, 6]));
+
+    // The range covers `StatCard`, not the wider `StatCardProps` the analyser
+    // was really answering about.
+    for (final location in inBoard) {
+      final range = location['range'] as Map;
+      final start = (range['start'] as Map)['character'] as int;
+      final end = (range['end'] as Map)['character'] as int;
+      expect(end - start, 'StatCard'.length);
+    }
+
+    // And no line is reported twice because two generated references collapsed
+    // onto it.
+    final keys = locations.map(
+        (l) => '${l['uri']}:${((l['range'] as Map)['start'] as Map)['line']}');
+    expect(keys.toSet().length, keys.length, reason: 'duplicates: $keys');
+  });
+
   test('hover on an argument reports the type the component declared',
       () async {
     const source = '''import 'package:reactx/reactx.dart';
