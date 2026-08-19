@@ -15,6 +15,7 @@
 ///   * **The banner is at the bottom**, for the same reason.
 library;
 
+import 'css.dart';
 import 'diagnostics.dart';
 import 'emitter.dart';
 import 'parser.dart';
@@ -42,11 +43,14 @@ class DartxResult {
 DartxResult transpileDartx(String source,
     {String? uri, bool banner = true, bool props = true}) {
   try {
-    final transpiler = _Transpiler(source);
+    // Found before anything is emitted, because every host element in a file
+    // with a scoped stylesheet has to carry its attribute.
+    final scope = hasScopedStyles(source) ? scopeIdFor(uri ?? source) : null;
+    final transpiler = _Transpiler(source, scope);
     var code = transpiler.run(0, source.length);
     // Appended, not woven in, so every line above keeps the number it had in
     // the .dartx file.
-    if (props) code += generatePropsClasses(code);
+    if (props) code += generatePropsClasses(code, scope: scope);
     return DartxResult(
       code: banner ? '$code${_banner(uri)}' : code,
     );
@@ -70,7 +74,10 @@ class _Transpiler {
   final String source;
   final LineMap lineMap;
 
-  _Transpiler(this.source) : lineMap = LineMap(source);
+  /// The scope id for this file, when it declares a `@scoped` stylesheet.
+  final String? scope;
+
+  _Transpiler(this.source, this.scope) : lineMap = LineMap(source);
 
   /// Transpiles `[start, end)` of [source].
   String run(int start, int end) {
@@ -113,7 +120,7 @@ class _Transpiler {
         );
         final element = parser.parseElement();
         final consumedTo = parser.i;
-        final emitted = emitElement(element, lineMap: lineMap);
+        final emitted = emitElement(element, lineMap: lineMap, scope: scope);
         out.write(emitted);
         out.write(_padding(i, consumedTo, emitted));
         prevSignificant = consumedTo - 1;

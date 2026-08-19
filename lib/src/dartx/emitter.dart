@@ -19,20 +19,24 @@ import 'diagnostics.dart';
 
 /// Emits [element] as a Dart expression, aligning generated lines with
 /// [lineMap]. Pass no [lineMap] to emit everything on one line.
-String emitElement(DartxElement element, {LineMap? lineMap}) =>
-    DartxEmitter(lineMap).element(element);
+String emitElement(DartxElement element, {LineMap? lineMap, String? scope}) =>
+    DartxEmitter(lineMap, scope: scope).element(element);
 
 /// Emits [node] as a Dart expression. See [emitElement].
-String emitNode(DartxNode node, {LineMap? lineMap}) =>
-    DartxEmitter(lineMap).node(node);
+String emitNode(DartxNode node, {LineMap? lineMap, String? scope}) =>
+    DartxEmitter(lineMap, scope: scope).node(node);
 
 class DartxEmitter {
   final LineMap? lineMap;
 
+  /// When this file has a `@scoped` stylesheet, the attribute every host
+  /// element it renders must carry for that stylesheet to reach it.
+  final String? scope;
+
   /// The source line the output has reached so far.
   int _line = 0;
 
-  DartxEmitter(this.lineMap);
+  DartxEmitter(this.lineMap, {this.scope});
 
   String node(DartxNode n) {
     if (lineMap != null && _line == 0) _line = lineMap!.lineAt(n.offset);
@@ -163,8 +167,13 @@ class DartxEmitter {
   }
 
   String _props(List<DartxAttribute> attributes) {
-    if (attributes.isEmpty) return 'const <String, Object?>{}';
-    final buffer = StringBuffer('<String, Object?>{');
+    final mark = scope == null ? '' : "'data-rx-$scope': '', ";
+    if (attributes.isEmpty) {
+      return mark.isEmpty
+          ? 'const <String, Object?>{}'
+          : 'const <String, Object?>{${mark.trimRight().replaceAll(RegExp(r',\$'), '')}}';
+    }
+    final buffer = StringBuffer('<String, Object?>{$mark');
     for (var i = 0; i < attributes.length; i++) {
       if (i > 0) buffer.write(', ');
       final a = attributes[i];

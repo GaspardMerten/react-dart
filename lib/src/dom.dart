@@ -16,6 +16,7 @@ import 'package:web/web.dart' as web;
 import 'host.dart';
 import 'hot_reload.dart';
 import 'reconciler.dart';
+import 'styles.dart';
 import 'vdom.dart';
 
 /// A [HostAdapter] backed by the browser DOM.
@@ -134,6 +135,7 @@ final class DomHostAdapter implements HostAdapter {
 /// [app] is a [VNode] or a [FunctionComponent]: `runApp(App)` for the common
 /// case, `runApp(use(App, props))` when the root takes props.
 Root runApp(Object app, {String selector = '#root'}) {
+  styleSink ??= _injectStyles;
   final reused = _reuse(selector, app);
   if (reused != null) return reused;
   final root = createRoot(DomHostAdapter(), _require(selector));
@@ -148,6 +150,10 @@ Root runApp(Object app, {String selector = '#root'}) {
 ///
 /// [app] is a [VNode] or a [FunctionComponent], as with [runApp].
 Root hydrateApp(Object app, {String selector = '#root'}) {
+  // The server already wrote these into the document; adopting them here would
+  // duplicate every rule. The sink is installed so that a component which first
+  // renders *after* hydration still gets its styles.
+  styleSink ??= _injectStyles;
   final reused = _reuse(selector, app);
   if (reused != null) return reused;
   final root = createRoot(DomHostAdapter(), _require(selector));
@@ -186,6 +192,17 @@ Root? _reuse(String selector, Object app) {
   if (root == null) return null;
   root.render(asVNode(app));
   return root;
+}
+
+/// Appends a component's scoped stylesheet to the document, once.
+///
+/// A `<style>` per component rather than one combined sheet: they arrive as
+/// components first render, and rewriting one growing element on every arrival
+/// would restyle the page each time.
+void _injectStyles(String css) {
+  final style = web.document.createElement('style');
+  style.textContent = css;
+  web.document.head?.append(style);
 }
 
 web.Element _require(String selector) {

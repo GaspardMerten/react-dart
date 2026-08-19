@@ -13,6 +13,7 @@ import 'diagnostics.dart';
 import 'hooks.dart';
 import 'host.dart';
 import 'store.dart';
+import 'styles.dart';
 import 'vdom.dart';
 
 /// Creates a root bound to [host] that renders into [container].
@@ -553,6 +554,12 @@ class Root {
     final dispatcher = _FiberDispatcher(this, fiber);
     Dispatcher.current = dispatcher;
     try {
+      if (c is ComponentProps) {
+        // The first render of a component with a scoped stylesheet is what puts
+        // that stylesheet on the page. Later renders cost a set lookup.
+        final css = c.styles;
+        if (css != null) adoptStyles(css);
+      }
       final out = switch (c) {
         ComponentProps p => p.build(),
         ComponentNode n => n.component(n.props),

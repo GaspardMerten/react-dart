@@ -34,6 +34,7 @@ library;
 import 'package:analyzer/dart/analysis/utilities.dart';
 import 'package:analyzer/dart/ast/ast.dart';
 
+import 'css.dart';
 import 'diagnostics.dart';
 
 /// The generated props classes for [source], or `''` when it declares no
@@ -41,7 +42,7 @@ import 'diagnostics.dart';
 ///
 /// [source] must be valid Dart — call this on the transpiler's *output*, after
 /// markup has been compiled away.
-String generatePropsClasses(String source) {
+String generatePropsClasses(String source, {String? scope}) {
   final unit = parseString(content: source, throwIfDiagnostics: false).unit;
 
   // Built from the *transpiled* source, because that is what the offsets below
@@ -57,21 +58,59 @@ String generatePropsClasses(String source) {
       if (d is NamedCompilationUnitMember) d.name.lexeme,
   };
 
+  final styles = scope == null ? null : _scopedStylesheet(unit, source, scope);
+
   final classes = <String>[];
   for (final declaration in unit.declarations) {
     if (declaration is! FunctionDeclaration) continue;
     if (!_isComponent(declaration)) continue;
-    classes.add(_classFor(declaration, lineMap, declared));
+    classes.add(_classFor(declaration, lineMap, declared,
+        styles: styles == null ? null : _stylesConstant));
   }
 
-  if (classes.isEmpty) return '';
+  if (classes.isEmpty) return styles ?? '';
   return '\n'
       '// ---------------------------------------------------------------------\n'
       '// Props types, generated from the Component functions above. Each one is\n'
       '// what its markup call sites construct, which is why a misspelled or\n'
       '// mistyped attribute is a compile error where you wrote it.\n'
       '// ---------------------------------------------------------------------\n'
-      '\n${classes.join('\n')}';
+      '\n${styles ?? ''}${classes.join('\n')}';
+}
+
+/// The name of the generated constant holding the scoped stylesheet.
+const _stylesConstant = r'_$dartxStyles';
+
+/// Rewrites the file's `@scoped` stylesheet so it can only reach this file's
+/// markup, and emits it as a constant the generated props types return.
+///
+/// The author's own constant is left exactly as written — they wrote plain CSS
+/// and that is what they should still see. What the components carry is this.
+String? _scopedStylesheet(CompilationUnit unit, String source, String scope) {
+  for (final declaration in unit.declarations) {
+    if (declaration is! TopLevelVariableDeclaration) continue;
+    if (!declaration.metadata.any((a) =>
+        a.name.name == 'scoped' || a.name.name == 'Scoped')) {
+      continue;
+    }
+    for (final variable in declaration.variables.variables) {
+      final initializer = variable.initializer;
+      if (initializer is! SimpleStringLiteral &&
+          initializer is! AdjacentStrings) {
+        continue;
+      }
+      final css = initializer is SimpleStringLiteral
+          ? initializer.value
+          : (initializer as AdjacentStrings)
+              .strings
+              .whereType<SimpleStringLiteral>()
+              .map((s) => s.value)
+              .join();
+      final scoped = scopeCss(css, 'data-rx-$scope');
+      return "const $_stylesConstant = '''\n$scoped''';\n\n";
+    }
+  }
+  return null;
 }
 
 /// Whether [declaration] is a component — that is, whether it says so in its
@@ -90,7 +129,7 @@ bool _isMemoized(FunctionDeclaration declaration) => declaration.metadata.any(
         annotation.name.name == 'Memoized');
 
 String _classFor(FunctionDeclaration declaration, LineMap lineMap,
-    Set<String> declared) {
+    Set<String> declared, {String? styles}) {
   final name = declaration.name.lexeme;
   final function = declaration.functionExpression;
 
@@ -207,6 +246,11 @@ String _classFor(FunctionDeclaration declaration, LineMap lineMap,
     buffer
       ..writeln('  @override')
       ..writeln('  bool get memoized => true;');
+  }
+  if (styles != null) {
+    buffer
+      ..writeln('  @override')
+      ..writeln('  String? get styles => $styles;');
   }
   buffer.writeln('}');
   return buffer.toString();

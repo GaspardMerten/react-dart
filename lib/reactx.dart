@@ -12,6 +12,7 @@ library;
 export 'src/context.dart';
 export 'src/diagnostics.dart' show reactxWarning, resetWarnings;
 export 'src/elements.dart';
+export 'src/escape.dart' show escapeForScript;
 export 'src/hooks.dart' show
     Ref,
     Cleanup,
@@ -34,4 +35,5 @@ export 'src/jsx.dart' show jsx, registerCompiledTemplate;
 export 'src/reconciler.dart' show Root, Fiber, createRoot;
 export 'src/ssr.dart' show renderToString, renderToDocument;
 export 'src/store.dart' show Store, defineStore;
+export 'src/styles.dart' show resetAdoptedStyles;
 export 'src/vdom.dart';

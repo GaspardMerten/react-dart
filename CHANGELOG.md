@@ -2,6 +2,31 @@
 
 ## 0.3.0
 
+**Scoped styles.** A stylesheet marked `@scoped` belongs to the components in
+its own file and cannot reach anything else:
+
+```dart
+@scoped
+const styles = '''
+  .card { padding: 1rem; }
+''';
+```
+
+Every element the file renders carries an attribute unique to it, and every
+selector is rewritten to require that attribute — `.card` becomes
+`.card[data-rx-a1b2]`. You write plain CSS and your class names are untouched.
+That is the mechanism Vue uses, and for the reason Vue uses it: a class in
+dartx is frequently an expression (`class={done ? 'todo is-done' : 'todo'}`),
+and renaming classes cannot follow a string computed at runtime.
+
+Styles travel with the components that use them. The renderer collects them as
+it walks the tree, so a page carries the stylesheets of what it actually
+rendered and nothing else — and a component appearing twenty times contributes
+its rules once. On the client they are appended as components first render.
+
+`@keyframes`, `@font-face`, comments and string values are left alone, because
+what looks like a selector inside them is not one.
+
 **A language server for `.dartx`.** `dart run reactx:dartx_lsp` proxies to
 Dart's own analysis server, so a `.dartx` file gets the analyser's real answers
 — type errors inline on the line that caused them, go to definition, hover —

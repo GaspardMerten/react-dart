@@ -19,7 +19,11 @@ import 'vdom.dart';
 ///
 /// [node] is a [VNode] or a [FunctionComponent], so both `renderToString(App)`
 /// and `renderToString(use(App, props))` work.
-String renderToString(Object node) {
+String renderToString(Object node) => _render(node).html;
+
+/// One render's output: the markup, and the scoped stylesheets of the
+/// components that produced it.
+({String html, List<String> styles}) _render(Object node) {
   final r = _SsrRenderer();
   final prev = Dispatcher.current;
   Dispatcher.current = r;
@@ -28,7 +32,7 @@ String renderToString(Object node) {
   } finally {
     Dispatcher.current = prev;
   }
-  return r._buf.toString();
+  return (html: r._buf.toString(), styles: r._styles.toList());
 }
 
 /// Convenience: renders [node] as the `<body>` of a full HTML document.
@@ -44,7 +48,14 @@ String renderToDocument(
   String? bootstrapScript,
   String lang = 'en',
 }) {
-  final body = renderToString(node);
+  final rendered = _render(node);
+  final body = rendered.html;
+  // Only the components this page rendered contribute. A stylesheet nobody
+  // used is not sent, which is the point of scoping it to a component in the
+  // first place.
+  final styles = rendered.styles.isEmpty
+      ? ''
+      : '<style>${rendered.styles.join('\n')}</style>\n';
   // dart2js output is a classic script (it assigns to the global scope), so it
   // must NOT be loaded as type="module". `defer` runs it after parse.
   final script = bootstrapScript == null
@@ -57,6 +68,7 @@ String renderToDocument(
       '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
       '<title>${_escapeText(title)}</title>\n'
       '$head\n'
+      '$styles'
       '</head>\n'
       '<body>\n'
       '<div id="${_escapeAttr(rootId)}">$body</div>\n'
@@ -73,6 +85,10 @@ class _SsrRenderer implements Dispatcher {
   /// one isolate therefore cannot see each other's data — the reason stores are
   /// not global.
   final Map<Object, Object?> _stores = {};
+
+  /// Scoped stylesheets of the components rendered here, in first-seen order
+  /// and each only once. Per render, for the same reason as the stores.
+  final Set<String> _styles = {};
 
   Object? _stateOf(Store<Object?, Object?> store) =>
       _stores.putIfAbsent(store, () => store.initialState);
@@ -96,6 +112,8 @@ class _SsrRenderer implements Dispatcher {
       case ComponentNode c:
         _render(c.component(c.props));
       case ComponentProps p:
+        final css = p.styles;
+        if (css != null) _styles.add(css);
         _render(p.build());
     }
   }

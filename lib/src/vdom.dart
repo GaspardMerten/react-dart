@@ -105,6 +105,14 @@ abstract class ComponentProps extends VNode {
   /// than describing it.
   List<Object?> get fields => const [];
 
+  /// The stylesheet this component brings with it, already scoped to it, or
+  /// null when the file declares none.
+  ///
+  /// Generated from a `@scoped` stylesheet in the component's own file. The
+  /// renderer collects these as it walks the tree, so a page carries the styles
+  /// of the components it actually rendered and nothing else.
+  String? get styles => null;
+
   /// Whether the reconciler may skip re-rendering when [fields] are unchanged
   /// — the `@memoized` marker.
   ///
@@ -137,6 +145,29 @@ abstract class ComponentProps extends VNode {
 /// declaring it, and a `List<VNode> children` parameter receives the element's
 /// children.
 typedef Component = VNode;
+
+/// Marks a stylesheet as belonging to the components in its own file.
+///
+/// ```dart
+/// @scoped
+/// const styles = '''
+///   .card { padding: 1rem; }
+/// ''';
+/// ```
+///
+/// The builder rewrites every selector to require an attribute that only this
+/// file's markup carries, so `.card` here cannot reach a `.card` anywhere else
+/// — and nothing anywhere else can reach into this one. Write plain CSS; the
+/// scoping is added for you, and the class names in your markup are untouched.
+///
+/// Styles reach the page through the components that use them: the renderer
+/// collects them as it walks the tree, so a page carries what it rendered.
+class Scoped {
+  const Scoped();
+}
+
+/// See [Scoped].
+const scoped = Scoped();
 
 /// Opts a component into the props bailout: the reconciler skips its re-render
 /// when every argument compares equal.
