@@ -14,6 +14,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const Module = require('node:module');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -113,4 +114,64 @@ test('the grammar, language config and snippets are well-formed JSON', () => {
 
   require(path.join(ROOT, 'language-configuration.json'));
   require(path.join(ROOT, 'snippets/dartx.json'));
+});
+
+/**
+ * Strips VS Code snippet placeholders down to the text they insert:
+ * `${1:Name}` -> `Name`, `$0` -> ``.
+ */
+function expand(body) {
+  return (Array.isArray(body) ? body.join('\n') : body)
+    .replace(/\$\{\d+:([^}]*)\}/g, '$1')
+    .replace(/\$\{\d+\}/g, '')
+    .replace(/\$\d+/g, '');
+}
+
+test('the component snippets teach the current way to declare one', () => {
+  // A compile check cannot catch this: `VNode Name(Props props)` still works,
+  // it is simply not how you write a component any more. Snippets are the
+  // first thing a newcomer copies, so the form they teach is load-bearing.
+  const snippets = require(path.join(ROOT, 'snippets/dartx.json'));
+  for (const [name, snippet] of Object.entries(snippets)) {
+    if (!snippet.prefix.startsWith('comp')) continue;
+    const source = expand(snippet.body);
+    assert.match(source, /^(@\w+\n)?Component \w+\(/,
+      `${name} should declare a component with the Component return type`);
+    assert.doesNotMatch(source, /\(Props props\)/,
+      `${name} still teaches the untyped props map`);
+  }
+});
+
+test('every component snippet compiles against the current dartx', (t) => {
+  // The point of this test is staleness, not syntax: snippets are the first
+  // thing a newcomer sees, and they used to teach `VNode Name(Props props)`
+  // for a full release after the framework had moved to `Component Name({…})`.
+  // Well-formed JSON cannot catch that; the compiler can.
+  const dart = spawnSync('dart', ['--version'], { encoding: 'utf8' });
+  if (dart.error) return t.skip('dart is not on PATH');
+
+  // Selected by prefix, deliberately. Selecting by what the body *looks* like
+  // would let a stale snippet drop silently out of the check — which is the
+  // one failure this test exists to catch.
+  const snippets = require(path.join(ROOT, 'snippets/dartx.json'));
+  const declarations = Object.entries(snippets)
+    .filter(([, s]) => s.prefix.startsWith('comp'));
+
+  assert.ok(declarations.length >= 4,
+    `expected the component snippets, found ${declarations.length}`);
+
+  const requests = declarations
+    .map(([name, s]) => JSON.stringify({ uri: `${name}.dartx`, source: expand(s.body) }))
+    .join('\n');
+
+  const result = spawnSync(
+    'dart', ['run', 'reactx:dartx', '--server'],
+    { cwd: path.join(ROOT, '../..'), input: requests + '\n', encoding: 'utf8' });
+
+  const answers = result.stdout.trim().split('\n').filter(Boolean).map(JSON.parse);
+  assert.equal(answers.length, declarations.length, result.stderr);
+  for (const answer of answers) {
+    assert.deepEqual(answer.diagnostics, [],
+      `${answer.uri} does not compile: ${JSON.stringify(answer.diagnostics)}`);
+  }
 });

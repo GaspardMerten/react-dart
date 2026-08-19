@@ -2,28 +2,26 @@
   "Component": {
     "prefix": "comp",
     "body": [
-      "VNode ${1:Name}(Props props) => (",
-      "  <${2:div}>",
+      "Component ${1:Name}({required ${2:String} ${3:label}}) => (",
+      "  <${4:div}>",
       "    $0",
-      "  </${2:div}>",
+      "  </${4:div}>",
       ");"
     ],
-    "description": "A function component returning markup"
+    "description": "A component. Its named parameters are its attributes, and the builder generates the props type its markup call sites construct."
   },
   "Stateful component": {
     "prefix": "compstate",
     "body": [
-      "VNode ${1:Name}(Props props) {",
+      "Component ${1:Name}() {",
       "  final (${2:value}, set${3:Value}) = useState(${4:0});",
       "",
-      "  return (",
-      "    <${5:div}>",
-      "      $0",
-      "    </${5:div}>",
-      "  );",
+      "  return <${5:div}>",
+      "    $0",
+      "  </${5:div}>;",
       "}"
     ],
-    "description": "A function component with local state"
+    "description": "A component with local state"
   },
   "useState": {
     "prefix": "ust",
@@ -61,7 +59,11 @@
   },
   "Fragment": {
     "prefix": "frag",
-    "body": ["<>", "  $0", "</>"],
+    "body": [
+      "<>",
+      "  $0",
+      "</>"
+    ],
     "description": "A fragment"
   },
   "Map a list to elements": {
@@ -83,5 +85,35 @@
     "prefix": "cmt",
     "body": "{/* $0 */}",
     "description": "A comment that is dropped from the output"
+  },
+  "Memoized component": {
+    "prefix": "compmemo",
+    "body": [
+      "@memoized",
+      "Component ${1:Name}({required ${2:Todo} ${3:item}}) => (",
+      "  <${4:li}>$0</${4:li}>",
+      ");"
+    ],
+    "description": "A component that skips its re-render when its arguments are unchanged"
+  },
+  "Component with children": {
+    "prefix": "compchildren",
+    "body": [
+      "Component ${1:Name}({List<VNode> children = const []}) => (",
+      "  <${2:section}>{children}</${2:section}>",
+      ");"
+    ],
+    "description": "A component that frames whatever markup it is given"
+  },
+  "Route": {
+    "prefix": "route",
+    "body": [
+      "Route(",
+      "  path: '${1:todo/:id}',",
+      "  element: const ${2:TodoPage}Props(),",
+      "  loader: (context) => ${3:fetchTodo}(context.params['${4:id}']!),",
+      "),"
+    ],
+    "description": "A route with a loader"
   }
 }
