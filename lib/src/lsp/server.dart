@@ -448,6 +448,10 @@ class DartxLanguageServer {
     if (asked != null && asked.method == 'textDocument/definition') {
       answer = _nullIfSelf(asked, answer);
     }
+    if (asked != null && asked.method == 'textDocument/completion') {
+      final map = answer as Map<String, Object?>;
+      answer = {...map, 'result': _atCursor(map['result'])};
+    }
 
     if (asked != null) {
       final result = (answer as Map<String, Object?>)['result'];
@@ -933,12 +937,14 @@ class DartxLanguageServer {
       },
     });
 
+    _log('-> editor #${message['id']} completion in <${tag.name}>: '
+        '${tag.completingName ? 'component names' : 'attributes'}');
     _toEditor({
       'jsonrpc': '2.0',
       'id': message['id'],
       'result': tag.completingName
           ? _asComponents(answer['result'])
-          : answer['result'],
+          : _atCursor(answer['result']),
     });
   }
 
@@ -969,6 +975,37 @@ class DartxLanguageServer {
     final at = lines[spot.line].indexOf('${name}Props');
     if (at < 0) return null;
     return Spot(spot.line, at + name.length);
+  }
+
+  /// Strips the edit ranges the analyser computed for the generated file.
+  ///
+  /// A completion item may carry a `textEdit` saying *replace exactly this
+  /// range with this text*, and the analyser measures that range in the file it
+  /// was asked about. Applied to the `.dartx` it points somewhere else — and an
+  /// editor discards an item whose edit does not contain the cursor, so the
+  /// suggestions arrive and are silently thrown away.
+  ///
+  /// Removing it falls back to inserting `insertText` at the word the editor
+  /// itself has under the cursor, which is what it computes anyway.
+  ///
+  /// `additionalTextEdits` are kept: those are the auto-import lines, and
+  /// imports are copied through the transpiler untouched, so an insertion at
+  /// line N column 0 means the same thing in both files.
+  Object? _atCursor(Object? result) {
+    final items = result is Map ? result['items'] : result;
+    if (items is! List) return result;
+
+    final cleaned = [
+      for (final raw in items)
+        if (raw is Map)
+          Map<String, Object?>.from(raw)
+            ..remove('textEdit')
+            ..remove('textEditText')
+        else
+          raw
+    ];
+
+    return result is Map ? {...result, 'items': cleaned} : cleaned;
   }
 
   /// Turns props types back into the components they stand for.

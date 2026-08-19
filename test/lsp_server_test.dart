@@ -587,6 +587,35 @@ import 'card.dartx.dart';
           reason: 'the generated type is not what belongs in the markup');
     });
 
+    test('items carry no edit range from the generated file', () async {
+      // An item may say "replace exactly this range", measured in the file the
+      // analyser was asked about. Applied to the `.dartx` it points somewhere
+      // else, and an editor discards an item whose edit does not contain the
+      // cursor — so the suggestions arrive and are silently thrown away. That
+      // is what "autocomplete doesn't work" looked like.
+      final uri = Uri.file('${workspace.path}/lib/c7.dartx').toString();
+      editor.open(uri, '''${header}Component P() => <section>
+  <StatCard label="a" value={1} />
+</section>;
+''');
+      await eventually(() => true, limit: const Duration(seconds: 8));
+
+      for (final at in [
+        {'line': 5, 'character': 12}, // inside the tag
+        {'line': 5, 'character': 20}, // on an attribute name
+      ]) {
+        final response = await editor.request('textDocument/completion',
+            {'textDocument': {'uri': uri}, 'position': at});
+        final result = response['result'];
+        final items = (result is Map ? result['items'] as List? : result as List?)
+            ?? const [];
+        for (final item in items) {
+          expect((item as Map)['textEdit'], isNull, reason: '$at');
+          expect(item['textEditText'], isNull, reason: '$at');
+        }
+      }
+    });
+
     test('a host element is left to the editor', () async {
       // `<div ` attributes are the HTML spec's; the analyser only sees a map
       // with string keys and has nothing useful to say.

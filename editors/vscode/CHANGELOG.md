@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.10
+
+* Fixed: completion suggestions arrived and were silently discarded. Each one
+  carried an edit range measured in the generated file, and an editor drops any
+  item whose edit does not contain the cursor.
+
 ## 0.2.9
 
 * Completion, in the three places it was missing. Typing inside an expression
