@@ -2,7 +2,7 @@
   "name": "dartx",
   "displayName": "dartx — JSX for Dart",
   "description": "Syntax highlighting, live diagnostics, tag closing and snippets for .dartx files (Dart with JSX-style markup, from the reactx package).",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "reactx",
   "license": "MIT",
   "engines": {
@@ -156,7 +156,28 @@
           "type": "boolean",
           "default": true,
           "description": "Suggest HTML element names after `<`."
+        },
+        "dartx.hideGeneratedFiles": {
+          "type": "string",
+          "enum": [
+            "nest",
+            "hide",
+            "show"
+          ],
+          "enumDescriptions": [
+            "Collapse each generated .dartx.dart under the .dartx it came from.",
+            "Remove them from the explorer and quick-open entirely.",
+            "Leave them where they are."
+          ],
+          "default": "nest",
+          "markdownDescription": "What to do with the `.dartx.dart` files the builder writes next to your sources. They are committed on purpose — that is what lets a package build without running `build_runner` first — but they are not files you edit."
         }
+      }
+    },
+    "configurationDefaults": {
+      "explorer.fileNesting.enabled": true,
+      "explorer.fileNesting.patterns": {
+        "*.dartx": "${capture}.dartx.dart"
       }
     }
   },

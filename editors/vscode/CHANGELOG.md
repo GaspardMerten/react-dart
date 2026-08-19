@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.1
+
+* Fixed: Ctrl-click and hover did nothing. The Dart analysis server does not
+  advertise `definitionProvider` or `hoverProvider` up front — it registers
+  them later, scoped to `language: dart` — so an editor obeying the negotiation
+  never asked about a `.dartx` file at all. The server now claims what it
+  answers, and widens the analyser's registrations to cover `.dartx`.
+* Generated `.dartx.dart` files are nested under the `.dartx` they came from,
+  rather than taking a row each in the explorer. `dartx.hideGeneratedFiles`
+  chooses `nest` (default), `hide` or `show`.
+
 ## 0.2.0
 
 * A language server. `.dartx` files now get real Dart type errors inline, go to

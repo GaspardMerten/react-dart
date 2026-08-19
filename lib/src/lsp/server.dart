@@ -85,6 +85,10 @@ class DartxLanguageServer {
   Process? _analyser;
   final _analyserReady = Completer<void>();
 
+  /// The id of the editor's `initialize`, so its answer can be corrected on the
+  /// way back.
+  Object? _initializeId;
+
   void _log(String message) => logSink?.writeln('[dartx-lsp] $message');
 
   Future<void> start() async {
@@ -119,6 +123,8 @@ class DartxLanguageServer {
 
   void _fromEditor(Map<String, Object?> message) {
     final method = message['method'] as String?;
+
+    if (method == 'initialize') _initializeId = message['id'];
 
     switch (method) {
       case 'textDocument/didOpen':
@@ -302,6 +308,15 @@ class DartxLanguageServer {
   // -- analyser -> editor ----------------------------------------------------
 
   void _fromAnalyser(Map<String, Object?> message) {
+    if (_initializeId != null && message['id'] == _initializeId) {
+      _initializeId = null;
+      _toEditor(_claimDartx(message));
+      return;
+    }
+    if (message['method'] == 'client/registerCapability') {
+      _toEditor(_widenRegistrations(message));
+      return;
+    }
     if (message['method'] == 'textDocument/publishDiagnostics') {
       _toEditor(_translateDiagnostics(message));
       return;
@@ -328,6 +343,84 @@ class DartxLanguageServer {
       if (seen.add(jsonEncode(entry))) unique.add(entry);
     }
     return {...message, 'result': unique};
+  }
+
+  /// Says out loud which requests this server answers.
+  ///
+  /// The analysis server does not advertise `definitionProvider` or
+  /// `hoverProvider` in its `initialize` answer at all — it registers them
+  /// later, dynamically, scoped to `language: dart`. A `.dartx` file is not
+  /// that language, so an editor obeying the negotiation never sends the
+  /// request, and Ctrl-click does nothing at all. Nothing is broken; the
+  /// question is simply never asked.
+  ///
+  /// So the answer is corrected on the way past. Everything claimed here is
+  /// something [_positionRequests] actually translates.
+  Map<String, Object?> _claimDartx(Map<String, Object?> message) {
+    final result = message['result'];
+    if (result is! Map<String, Object?>) return message;
+
+    final capabilities = Map<String, Object?>.from(
+        result['capabilities'] as Map<String, Object?>? ?? const {});
+
+    capabilities['definitionProvider'] ??= true;
+    capabilities['typeDefinitionProvider'] ??= true;
+    capabilities['implementationProvider'] ??= true;
+    capabilities['hoverProvider'] ??= true;
+    capabilities['referencesProvider'] ??= true;
+    capabilities['documentHighlightProvider'] ??= true;
+    capabilities['completionProvider'] ??= const {
+      // Enough to be useful inside an element; an unclosed tag has nothing to
+      // compile, so completion there stays empty rather than wrong.
+      'triggerCharacters': ['.', '=', '(', r'$'],
+    };
+
+    return {
+      ...message,
+      'result': {...result, 'capabilities': capabilities},
+    };
+  }
+
+  /// Extends a dynamic registration to cover `.dartx` as well as `.dart`.
+  ///
+  /// The analyser registers for the language it knows about. Left alone, the
+  /// editor would route `.dart` requests to this server and `.dartx` requests
+  /// nowhere — which is the opposite of the arrangement.
+  Map<String, Object?> _widenRegistrations(Map<String, Object?> message) {
+    final params = message['params'];
+    if (params is! Map<String, Object?>) return message;
+
+    final registrations = params['registrations'];
+    if (registrations is! List) return message;
+
+    final widened = <Object?>[];
+    for (final raw in registrations) {
+      if (raw is! Map) {
+        widened.add(raw);
+        continue;
+      }
+      final registration = Map<String, Object?>.from(raw);
+      final options = registration['registerOptions'];
+      if (options is Map<String, Object?>) {
+        final selectors = options['documentSelector'];
+        if (selectors is List &&
+            selectors.any((s) => s is Map && s['language'] == 'dart')) {
+          registration['registerOptions'] = {
+            ...options,
+            'documentSelector': [
+              ...selectors,
+              {'language': 'dartx', 'scheme': 'file'},
+            ],
+          };
+        }
+      }
+      widened.add(registration);
+    }
+
+    return {
+      ...message,
+      'params': {...params, 'registrations': widened},
+    };
   }
 
   /// Diagnostics the analyser raised against a generated file, moved onto the

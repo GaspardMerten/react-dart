@@ -347,6 +347,56 @@ async function compileFile() {
 }
 
 // ---------------------------------------------------------------------------
+// Generated files
+// ---------------------------------------------------------------------------
+
+/**
+ * Keeps `*.dartx.dart` out of the way without pretending it does not exist.
+ *
+ * These files are committed on purpose — that is what lets a package build
+ * without running `build_runner` first — but they are not files anyone edits,
+ * and one per component doubles the length of every folder.
+ *
+ * Nesting is the default rather than hiding, because hidden files also vanish
+ * from quick-open and from search results, and a generated file is exactly
+ * what you want to look at when you are trying to understand what the markup
+ * compiled to. `hide` is there for people who disagree.
+ */
+async function applyGeneratedFileVisibility() {
+  // Workspace settings need a workspace. Opening a lone `.dartx` file is a
+  // perfectly ordinary thing to do, and writing configuration is not worth
+  // failing activation over.
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) return;
+  const target = vscode.ConfigurationTarget && vscode.ConfigurationTarget.Workspace;
+  if (target === undefined) return;
+
+  const mode = config().get('hideGeneratedFiles', 'nest');
+  const files = vscode.workspace.getConfiguration('files');
+  const explorer = vscode.workspace.getConfiguration('explorer');
+
+  const exclude = { ...(files.get('exclude') || {}) };
+  const hiding = exclude['**/*.dartx.dart'] === true;
+
+  if (mode === 'hide' && !hiding) {
+    exclude['**/*.dartx.dart'] = true;
+    await files.update('exclude', exclude, target);
+  } else if (mode !== 'hide' && hiding) {
+    // Only undo what this setting put there.
+    delete exclude['**/*.dartx.dart'];
+    await files.update('exclude', exclude, target);
+  }
+
+  if (mode === 'nest') {
+    const patterns = { ...(explorer.get('fileNesting.patterns') || {}) };
+    if (patterns['*.dartx'] !== '${capture}.dartx.dart') {
+      patterns['*.dartx'] = '${capture}.dartx.dart';
+      await explorer.update('fileNesting.patterns', patterns, target);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // The language server
 // ---------------------------------------------------------------------------
 
@@ -415,6 +465,9 @@ function activate(context) {
 
   const runOnType = () => config().get('diagnostics.runOn', 'type') === 'type';
 
+  applyGeneratedFileVisibility().catch((e) =>
+      output.appendLine(`[dartx] could not apply file visibility: ${e}`));
+
   // The language server owns diagnostics when it is running. Running both would
   // double every squiggle, and the markup errors are a strict subset.
   let usingLanguageServer = false;
@@ -445,6 +498,10 @@ function activate(context) {
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (!event.affectsConfiguration('dartx')) return;
+      if (event.affectsConfiguration('dartx.hideGeneratedFiles')) {
+        applyGeneratedFileVisibility().catch((e) =>
+      output.appendLine(`[dartx] could not apply file visibility: ${e}`));
+      }
       for (const server of servers.values()) server.dispose();
       servers.clear();
       vscode.workspace.textDocuments.forEach(check);

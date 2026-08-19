@@ -18,8 +18,12 @@ const { spawnSync } = require('node:child_process');
 
 const ROOT = path.join(__dirname, '..');
 
-/** @returns {{registered: Set<string>, restore: () => void}} */
-function stubVscode() {
+/**
+ * @param {Record<string, any>} [overrides] merged over `workspace`, or onto the
+ *   stub itself for keys that are not workspace members.
+ * @returns {{registered: Set<string>, restore: () => void}}
+ */
+function stubVscode(overrides = {}) {
   const registered = new Set();
   const disposable = { dispose() {} };
   const noop = () => disposable;
@@ -65,11 +69,27 @@ function stubVscode() {
     ViewColumn: { Beside: 2 },
   };
 
-  const load = Module._load;
-  Module._load = (request, ...rest) =>
-    request === 'vscode' ? vscode : load(request, ...rest);
+  for (const [key, value] of Object.entries(overrides)) {
+    if (key in vscode.workspace) vscode.workspace[key] = value;
+    else if (key === 'getConfiguration') vscode.workspace[key] = value;
+    else vscode[key] = value;
+  }
 
-  return { registered, restore: () => { Module._load = load; } };
+  const load = Module._load;
+  Module._load = (request, ...rest) => {
+    if (request === 'vscode') return vscode;
+    // Node caches modules; the extension must be re-evaluated per stub.
+    return load(request, ...rest);
+  };
+
+  delete require.cache[require.resolve(path.join(ROOT, 'extension.js'))];
+  return {
+    registered,
+    restore: () => {
+      Module._load = load;
+      delete require.cache[require.resolve(path.join(ROOT, 'extension.js'))];
+    },
+  };
 }
 
 test('the extension activates and registers every declared command', () => {
@@ -173,5 +193,49 @@ test('every component snippet compiles against the current dartx', (t) => {
   for (const answer of answers) {
     assert.deepEqual(answer.diagnostics, [],
       `${answer.uri} does not compile: ${JSON.stringify(answer.diagnostics)}`);
+  }
+});
+
+test('generated files are nested under the .dartx they came from', async () => {
+  // The `.dartx.dart` files are committed on purpose, so they cannot simply be
+  // gitignored out of sight — but one per component doubles the length of every
+  // folder. Nesting keeps them reachable while getting them out of the way.
+  const updates = [];
+  const settings = {
+    'explorer.fileNesting.patterns': {},
+    'files.exclude': {},
+  };
+
+  const stub = stubVscode({
+    workspaceFolders: [{ uri: { fsPath: '/tmp/ws' } }],
+    ConfigurationTarget: { Workspace: 2 },
+    getConfiguration: (section) => ({
+      get: (key, fallback) => {
+        if (section === 'dartx') return fallback;
+        return settings[`${section}.${key}`] ?? fallback;
+      },
+      update: (key, value, target) => {
+        settings[`${section}.${key}`] = value;
+        updates.push({ section, key, target });
+        return Promise.resolve();
+      },
+    }),
+  });
+
+  try {
+    const extension = require(path.join(ROOT, 'extension.js'));
+    extension.activate({ subscriptions: [] });
+    // The write is async; let the microtask queue drain.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.deepEqual(
+      settings['explorer.fileNesting.patterns'],
+      { '*.dartx': '${capture}.dartx.dart' });
+    assert.deepEqual(settings['files.exclude'], {},
+      'nesting is the default, not hiding — a hidden file also vanishes from '
+      + 'search, and the generated Dart is worth reading');
+    assert.ok(updates.some((u) => u.target === 2), 'written to the workspace');
+  } finally {
+    stub.restore();
   }
 });
