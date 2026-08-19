@@ -26,7 +26,8 @@ Component Counter({int start = 0}) {
 | **Hover** | The declared type of an argument, from the analyser. |
 | **Find all references** | On a component, lists the `<StatCard …>` elements that use it — not the generated code that stands behind them. Ctrl-click the declaration, press Shift+F12, or click the lens. |
 | **Usage counts** | A **"3 usages"** lens above each component declaration. |
-| **Highlighting** | Tags, attributes, entities and embedded Dart, with the Dart grammar handling everything outside the markup. |
+| **Highlighting** | Tags, attributes, entities and embedded Dart. An element owns everything between its tags, so text children are text — not Dart that happens to look like an identifier. |
+| **Route paths** | A file under a `routes/` directory shows the URL it serves — `Route  /todo/:id` — above its component. |
 | **Markup diagnostics** | The transpiler's own errors — a mismatched closing tag, a spread on a component — which the analyser cannot produce because it never sees the markup. |
 | **Tag editing** | `>` closes the tag you just opened; `</` completes the innermost open one. |
 | **Snippets** | `comp`, `compstate`, `compmemo`, `compchildren`, `route`, `ust`, `uef`, `frag`, `map`, … |

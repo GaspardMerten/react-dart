@@ -6,6 +6,7 @@ library;
 
 import 'package:reactx/reactx.dart';
 import 'package:reactx/router.dart';
+import '../../routes.dart';
 
 Component NotFoundPage() {
   final path = useRoutePath();
@@ -18,3 +19,6 @@ Component NotFoundPage() {
     <p class="hint"><Link href="/" class="nav-link">Back to the todos</Link></p>
   </section>;
 }
+
+/// Picked up by the generator and hung off this route's `title`.
+const title = PageInfo('Not found · reactx', 'No such page.');

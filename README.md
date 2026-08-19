@@ -646,6 +646,78 @@ Errors from a loader or guard render the nearest `errorElement` at or above
 the failure, and its children do not render at all — a route that could not load
 its data has no business drawing.
 
+### Routes from the file system
+
+Writing that table by hand is fine, and for a handful of routes it is the
+clearest thing in the app. Past that, the shape of the tree is already visible
+in the directory, so `build_runner` can write the table for you.
+
+The model is TanStack Router's rather than Next.js's, and the difference
+matters: **nothing scans a directory at runtime.** The generator emits
+`routes.g.dart` — the same `Route` objects you would have typed — and the server
+and the browser share it. Open the file and you can read exactly what you got.
+
+```
+lib/routes/
+  layout.dartx                 the shell; renders <Outlet />
+  page.dartx                   /
+  stats/page.dartx             /stats
+  todo/[id]/page.dartx         /todo/:id
+  todo/[id]/error.dartx        rendered when that route's loader throws
+  todo/[id]/edit/page.dartx    /todo/:id/edit
+  (marketing)/about/page.dartx /about — a (parenthesised) folder groups files
+                               without adding a path segment
+  [...rest]/page.dartx         the catch-all
+```
+
+`[id]` captures a parameter and `[...rest]` is the catch-all; TanStack's own
+`$id` and bare `$` work too. A `layout.dartx` wraps its directory and everything
+below it, and the `page.dartx` beside one becomes that layout's index route.
+
+Everything else a route carries is declared **in the page file**, picked up by
+name:
+
+```dart
+// lib/routes/todo/[id]/page.dartx
+Component TodoPage() {
+  final todo = useLoaderData<Todo>(todoIdRoute);   // the generated route object
+  return <article>{todo.title}</article>;
+}
+
+Future<Todo> loader(LoaderContext context) => fetchTodo(context.params['id']!);
+Object? encode(Object? todo) => (todo! as Todo).toJson();
+Object? decode(Object? json) => Todo.fromJson(json! as Map<String, Object?>);
+const middleware = [requireSignedIn];
+const title = PageInfo('Todo', 'One todo, loaded by its route.');
+```
+
+The generated names are derived from the path — `todo/[id]` is `todoIdRoute`,
+the root layout is `rootRoute`, the catch-all is `catchAllRoute` — and
+`useLoaderData` still takes the **route object**, so nothing here is a string
+you can mistype.
+
+Turn it on in `build.yaml`:
+
+```yaml
+targets:
+  $default:
+    builders:
+      reactx|routes:
+        enabled: true
+        # defaults; set them if your routes live elsewhere
+        options:
+          routes: lib/routes
+          output: lib/routes.g.dart
+```
+
+`reactx serve` regenerates the table itself, with the same generator, so adding
+`routes/about/page.dartx` is live before you have finished saving it.
+
+A route the conventions cannot express is still an ordinary `Route` — write it
+by hand and add it to the list. `example/todo_app` is the whole thing working:
+nine files, one guard, one loader, and a `routes.dart` that holds only what a
+directory layout genuinely cannot say.
+
 **Known limits.** No optional segments (`/a/:b?`) or regex constraints; no
 per-route code splitting; loaders do not revalidate on their own — a navigation
 to the same location re-runs them, nothing else does.
@@ -880,6 +952,9 @@ lib/
     router/              routing + History API, one file per platform
       route.dart         the route tree: ranked matching, guards, loaders
       router.dart        RouterScope, Outlet, Link, the hooks
+    routes/
+      file_routes.dart   a routes directory -> the generated Route table
+      generate_io.dart   the same, for a real directory (the dev server)
     store.dart           Store + defineStore (state lives on the Root)
     diagnostics.dart     the dev-mode warning sink
     hot_reload.dart      the flag that makes runApp reuse its Root
@@ -895,7 +970,7 @@ lib/
       emitter.dart       AST -> Dart, with line-for-line fidelity
       transpiler.dart    the pass that ties them together
       diagnostics.dart   positions and errors
-    builder/             the two Builders
+    builder/             the three Builders
 bin/
   dartx.dart             CLI: compile, --check, --server
   serve.dart             CLI: the development server

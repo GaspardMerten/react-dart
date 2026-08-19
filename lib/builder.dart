@@ -6,7 +6,10 @@
 ///     into `.dartx.dart`. See `lib/src/builder/dartx_builder.dart`.
 ///   * [reactxJsxBuilder] precompiles runtime `jsx(r'...')` string templates.
 ///     See `lib/src/builder/jsx_precompiler.dart`.
+///   * [reactxRoutesBuilder] turns a routes directory into a route table.
+///     See `lib/src/builder/routes_builder.dart`.
 library;
 
 export 'src/builder/dartx_builder.dart' show reactxDartxBuilder;
 export 'src/builder/jsx_precompiler.dart' show reactxJsxBuilder;
+export 'src/builder/routes_builder.dart' show reactxRoutesBuilder;

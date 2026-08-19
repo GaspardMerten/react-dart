@@ -8,8 +8,9 @@ library;
 import 'package:reactx/reactx.dart';
 import 'package:reactx/router.dart';
 
-import '../components/stat_card.dartx.dart';
-import '../state/todo_store.dart';
+import '../../components/stat_card.dartx.dart';
+import '../../routes.dart';
+import '../../state/todo_store.dart';
 
 Component StatsPage() {
   final (state, _) = useStore(todoStore);
@@ -21,7 +22,7 @@ Component StatsPage() {
   return <section class="stack">
     <header class="page-head">
       <h1>Stats</h1>
-      <p class="lede">Everything below is sadderived state — no second copy.</p>
+      <p class="lede">Everything below is derived state — no second copy.</p>
     </header>
 
     <div class="cards">
@@ -70,3 +71,6 @@ Component StatsPage() {
     </p>
   </section>;
 }
+
+/// Picked up by the generator and hung off this route's `title`.
+const title = PageInfo('Stats · reactx', 'Progress by tag, derived from the store.');

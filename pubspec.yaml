@@ -16,6 +16,9 @@ dependencies:
   web: ^1.1.0
   # Used by the optional build_runner precompiler (lib/builder.dart).
   build: ^2.4.1
+  # Used by the routes builder to glob the routes directory.
+  glob: ^2.1.2
+  path: ^1.9.0
   analyzer: ">=6.0.0 <8.0.0"
 
 dev_dependencies:

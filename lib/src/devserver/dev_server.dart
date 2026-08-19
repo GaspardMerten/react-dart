@@ -31,6 +31,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../dartx/transpiler.dart';
+import '../routes/generate_io.dart';
 import 'client.dart';
 import 'ddc_compiler.dart';
 import 'vm_service.dart';
@@ -469,6 +470,7 @@ int reactxHotReload() => reactx_dom.reassembleApps();
           ? 'compiling for hot reload'
           : 'compiling for hot restart');
       final dartxError = _transpileAll();
+      _generateRoutes();
       if (dartxError != null) {
         _fail('dartx', dartxError);
         return;
@@ -539,6 +541,14 @@ int reactxHotReload() => reactx_dom.reassembleApps();
     }
     return problems.isEmpty ? null : problems.toString().trimRight();
   }
+
+  /// Rewrites the generated route table for every `routes/` directory found.
+  ///
+  /// `build_runner` normally does this, but the dev server deliberately does
+  /// not run it — and adding `routes/about/page.dartx` only to get nothing
+  /// until you remember to run a build is exactly the papercut file-system
+  /// routing exists to remove. Same generator, same output.
+  void _generateRoutes() => generateRoutesUnder(appDir);
 
   /// Recompiles only what changed and pushes it into the live page.
   ///

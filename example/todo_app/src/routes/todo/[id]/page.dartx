@@ -13,14 +13,15 @@ library;
 import 'package:reactx/reactx.dart';
 import 'package:reactx/router.dart';
 
-import '../models/session.dart';
-import '../models/todo.dart';
-import '../routes.dart';
+import '../../../data/todo_api.dart';
+import '../../../models/session.dart';
+import '../../../models/todo.dart';
+import '../../../routes.dart';
 
 Component TodoDetailPage() {
-  // Keyed by the route object, not by a name: rename `todoDetailRoute` and this
+  // Keyed by the route object, not by a name: rename `todoIdRoute` and this
   // follows, and no other route can collide with it.
-  final todo = useLoaderData<Todo>(todoDetailRoute);
+  final todo = useLoaderData<Todo>(todoIdRoute);
   final session = useRouteExtra<Session>();
 
   return <article class="stack">
@@ -55,3 +56,16 @@ Component TodoDetailPage() {
     <Outlet />
   </article>;
 }
+
+/// Fetches this route's data before the page renders. The generator picks it up
+/// by name, so there is nothing to register.
+Future<Todo> loader(LoaderContext context) => fetchTodo(context.params['id']!);
+
+/// With these two, the server's fetch travels to the browser inside the page
+/// and the client does not repeat it. Delete them and everything still works —
+/// the client just loads it again.
+Object? encode(Object? todo) => encodeTodo(todo! as Todo);
+Object? decode(Object? json) => decodeTodo(json! as Map<String, Object?>);
+
+/// Picked up by the generator and hung off this route's `title`.
+const title = PageInfo('Todo · reactx', 'One todo, loaded by its route.');

@@ -8,6 +8,17 @@ builders:
     auto_apply: dependents
     build_to: source
 
+  # Turns a routes directory into a generated `Route` table. Off unless a
+  # target asks for it, because most packages have no routes directory; the
+  # paths below are per-target options.
+  routes:
+    import: "package:reactx/builder.dart"
+    builder_factories: ["reactxRoutesBuilder"]
+    build_extensions:
+      $package$: ["lib/routes.g.dart"]
+    auto_apply: none
+    build_to: source
+
   # Precompiles runtime jsx(r'...') string templates. Optional, and unrelated
   # to .dartx files, whose markup is compiled outright.
   jsx_precompiler:
@@ -26,6 +37,15 @@ targets:
       # package's own examples and tests need it turned on explicitly.
       reactx|dartx:
         enabled: true
+
+      # The example app's routes directory. An app would normally leave these
+      # at their defaults (`lib/routes` -> `lib/routes.g.dart`); this package
+      # keeps its example outside `lib/`, so it says where.
+      reactx|routes:
+        enabled: true
+        options:
+          routes: example/todo_app/src/routes
+          output: example/todo_app/src/routes.g.dart
 
       # Only precompile string templates in app code, not library internals or
       # tests. .dartx files anywhere are always compiled.

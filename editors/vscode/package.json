@@ -1,8 +1,8 @@
 {
   "name": "dartx",
-  "displayName": "dartx — JSX for Dart",
+  "displayName": "dartx \u2014 JSX for Dart",
   "description": "Syntax highlighting, live diagnostics, tag closing and snippets for .dartx files (Dart with JSX-style markup, from the reactx package).",
-  "version": "0.2.12",
+  "version": "0.3.0",
   "publisher": "reactx",
   "license": "MIT",
   "engines": {
@@ -88,6 +88,11 @@
         "command": "dartx.showReferences",
         "title": "Show Component Usages",
         "category": "dartx"
+      },
+      {
+        "command": "dartx.copyRoutePath",
+        "title": "Copy Route Path",
+        "category": "dartx"
       }
     ],
     "menus": {
@@ -110,6 +115,10 @@
         {
           "command": "dartx.showReferences",
           "when": "false"
+        },
+        {
+          "command": "dartx.copyRoutePath",
+          "when": "false"
         }
       ]
     },
@@ -124,7 +133,7 @@
         "dartx.languageServer.enabled": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Run the dartx language server, which gives `.dartx` files real type errors, hover, go-to-definition and find-references by proxying to the Dart analysis server.\n\n**It starts a second analysis server**, alongside the one the Dart extension already runs — roughly 500 MB and a core of its own. On a large workspace that is felt. Turn this off to fall back to markup-only checking, which costs almost nothing."
+          "markdownDescription": "Run the dartx language server, which gives `.dartx` files real type errors, hover, go-to-definition and find-references by proxying to the Dart analysis server.\n\n**It starts a second analysis server**, alongside the one the Dart extension already runs \u2014 roughly 500 MB and a core of its own. On a large workspace that is felt. Turn this off to fall back to markup-only checking, which costs almost nothing."
         },
         "dartx.transpilerArgs": {
           "type": "array",
@@ -179,14 +188,20 @@
             "Leave them where they are."
           ],
           "default": "nest",
-          "markdownDescription": "What to do with the `.dartx.dart` files the builder writes next to your sources. They are committed on purpose — that is what lets a package build without running `build_runner` first — but they are not files you edit."
+          "markdownDescription": "What to do with the `.dartx.dart` files the builder writes next to your sources. They are committed on purpose \u2014 that is what lets a package build without running `build_runner` first \u2014 but they are not files you edit."
+        },
+        "dartx.showRoutePath": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show the URL a file under a `routes/` directory serves, as a code lens above its component."
         }
       }
     },
     "configurationDefaults": {
       "explorer.fileNesting.enabled": true,
       "explorer.fileNesting.patterns": {
-        "*.dartx": "${capture}.dartx.dart"
+        "*.dartx": "${capture}.dartx.dart",
+        "*.dart": "${capture}.g.dart"
       },
       "emmet.includeLanguages": {
         "dartx": "html"
@@ -195,5 +210,12 @@
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
   }
 }

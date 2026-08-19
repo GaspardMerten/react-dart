@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.3.0
+
+* **Text between tags is text.** `<h1>Stats</h1>` coloured `Stats` like a Dart
+  type, because everything the markup rules did not claim fell through to the
+  Dart grammar — an apostrophe in a sentence opened a string, and a capitalised
+  word became a class. An element now spans from its opening tag to its closing
+  one, so its children are markup: only `{…}`, nested tags, entities and
+  comments are anything else.
+
+  Two more consequences of the same rewrite. Dart comments and string literals
+  are claimed *before* the markup rules, so a `<select>` in a doc comment and a
+  `'http://…'` in a string are no longer read as tags. And a lowercase name is
+  only treated as an element when it is a real HTML tag or has a dash in it, so
+  `<void Function()>[]` stays Dart.
+
+  The grammar is now tested: `test/grammar.test.js` tokenises snippets with the
+  engine VS Code itself uses, and sweeps every `.dartx` in the repository to
+  check that none of them ends inside markup.
+
+* **The route a file serves, above its component.** Under file-system routing
+  the URL is spread across four folder names and spelled `[id]` rather than
+  `:id`. A lens now reads `Route  /todo/:id` — or `Layout  wraps /todo/:id/*` —
+  in the one place you are already looking. Click it to copy the path. Turn it
+  off with `dartx.showRoutePath`.
+
 ## 0.2.12
 
 * Fixed: completion still showed nothing. Stripping each item's edit range was

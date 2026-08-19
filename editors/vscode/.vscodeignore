@@ -5,5 +5,8 @@ test/**
 # node_modules IS shipped: vscode-languageclient is a runtime dependency, and
 # an extension that cannot find it silently loses every language feature.
 node_modules/.bin/**
+# Test-only, and vscode-oniguruma alone is 1.5 MB of wasm.
+node_modules/vscode-textmate/**
+node_modules/vscode-oniguruma/**
 node_modules/**/test/**
 node_modules/**/*.md

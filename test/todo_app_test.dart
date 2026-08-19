@@ -21,11 +21,11 @@ import 'package:reactx/testing.dart';
 import 'package:test/test.dart';
 
 import '../example/todo_app/src/app.dartx.dart';
-import '../example/todo_app/src/components/layout.dartx.dart';
 import '../example/todo_app/src/data/todo_api.dart';
 import '../example/todo_app/src/models/session.dart';
 import '../example/todo_app/src/models/todo.dart';
 import '../example/todo_app/src/routes.dart';
+import '../example/todo_app/src/routes/layout.dartx.dart';
 import '../example/todo_app/src/state/todo_store.dart';
 
 const _signedIn = Session(signedIn: true);
@@ -166,14 +166,14 @@ void main() {
     test('a dynamic route beats the catch-all whatever the order', () async {
       final snapshot = await resolve('/todo/2');
       expect(isNotFound(snapshot.matches), isFalse);
-      expect(snapshot.matches.last.route, same(todoDetailRoute));
+      expect(snapshot.matches.last.route, same(todoIdRoute));
       expect(snapshot.matches.last.params['id'], '2');
     });
 
     test('the loader runs before anything renders', () async {
       final snapshot = await resolve('/todo/2');
-      expect(snapshot.data[todoDetailRoute], isA<Todo>());
-      expect((snapshot.data[todoDetailRoute]! as Todo).id, 2);
+      expect(snapshot.data[todoIdRoute], isA<Todo>());
+      expect((snapshot.data[todoIdRoute]! as Todo).id, 2);
       expect(snapshot.hasError, isFalse);
     });
 
@@ -198,7 +198,7 @@ void main() {
       final snapshot = await resolve('/todo/2/edit', as: _signedIn);
       expect(snapshot.hasError, isFalse);
       // The child has no loader of its own; it reads the parent's data.
-      expect(snapshot.data[todoDetailRoute], isA<Todo>());
+      expect(snapshot.data[todoIdRoute], isA<Todo>());
     });
 
     test('no page metadata is missing', () async {
@@ -220,8 +220,8 @@ void main() {
       expect(restored, isNotNull);
       expect(restored!.isComplete, isTrue,
           reason: 'no loader is left for the client to run');
-      expect((restored.data[todoDetailRoute]! as Todo).title,
-          (server.data[todoDetailRoute]! as Todo).title);
+      expect((restored.data[todoIdRoute]! as Todo).title,
+          (server.data[todoIdRoute]! as Todo).title);
     });
 
     test('a payload for another location is refused', () async {

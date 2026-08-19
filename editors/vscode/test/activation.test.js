@@ -42,6 +42,7 @@ function stubVscode(overrides = {}) {
         set() {}, delete() {}, clear() {}, dispose() {},
       }),
       registerCompletionItemProvider: noop,
+      registerCodeLensProvider: noop,
     },
     workspace: {
       getConfiguration: () => ({ get: (_key, fallback) => fallback }),
@@ -244,11 +245,42 @@ test('generated files are nested under the .dartx they came from', async () => {
 
     assert.deepEqual(
       settings['explorer.fileNesting.patterns'],
-      { '*.dartx': '${capture}.dartx.dart' });
+      { '*.dartx': '${capture}.dartx.dart', '*.dart': '${capture}.g.dart' });
     assert.deepEqual(settings['files.exclude'], {},
       'nesting is the default, not hiding — a hidden file also vanishes from '
       + 'search, and the generated Dart is worth reading');
     assert.ok(updates.some((u) => u.target === 2), 'written to the workspace');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('a hand-written *.dart nesting rule is left alone', async () => {
+  const settings = {
+    'explorer.fileNesting.patterns': { '*.dart': '${capture}.freezed.dart' },
+    'files.exclude': {},
+  };
+  const stub = stubVscode({
+    workspaceFolders: [{ uri: { fsPath: '/tmp/ws' } }],
+    ConfigurationTarget: { Workspace: 2 },
+    getConfiguration: (section) => ({
+      get: (key, fallback) => {
+        if (section === 'dartx') return fallback;
+        return settings[`${section}.${key}`] ?? fallback;
+      },
+      update: (key, value) => {
+        settings[`${section}.${key}`] = value;
+        return Promise.resolve();
+      },
+    }),
+  });
+
+  try {
+    const extension = require(path.join(ROOT, 'extension.js'));
+    extension.activate({ subscriptions: [] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.strictEqual(
+      settings['explorer.fileNesting.patterns']['*.dart'], '${capture}.freezed.dart');
   } finally {
     stub.restore();
   }

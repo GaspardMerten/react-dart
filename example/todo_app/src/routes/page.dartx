@@ -11,6 +11,7 @@ import '../components/filter_bar.dartx.dart';
 import '../components/todo_form.dartx.dart';
 import '../components/todo_item.dartx.dart';
 import '../models/todo.dart';
+import '../routes.dart';
 import '../state/todo_store.dart';
 
 Component TodosPage() {
@@ -50,3 +51,6 @@ Component TodosPage() {
           </button>}
   </section>;
 }
+
+/// Picked up by the generator and hung off this route's `title`.
+const title = PageInfo('Todos · reactx', 'A todo list rendered on the server, then hydrated.');

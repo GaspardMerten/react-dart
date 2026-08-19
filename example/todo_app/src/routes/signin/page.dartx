@@ -11,7 +11,8 @@ library;
 import 'package:reactx/reactx.dart';
 import 'package:reactx/router.dart';
 
-import '../models/session.dart';
+import '../../models/session.dart';
+import '../../routes.dart';
 
 Component SignInPage() {
   final next = useQuery()['next'] ?? '/';
@@ -49,3 +50,6 @@ Component SignInPage() {
     </p>
   </article>;
 }
+
+/// Picked up by the generator and hung off this route's `title`.
+const title = PageInfo('Sign in · reactx', 'The guard sent you here.');

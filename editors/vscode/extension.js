@@ -31,6 +31,8 @@ const path = require('path');
 const { tagToClose, innermostOpenTag } = require('./tags');
 
 /** Suggested after `<`. Components come from the file, these do not. */
+const { routeFor, routeLabel } = require('./routes');
+
 const HTML_TAGS = [
   'a', 'abbr', 'article', 'aside', 'audio', 'b', 'blockquote', 'body', 'br',
   'button', 'canvas', 'caption', 'code', 'col', 'dd', 'details', 'dialog',
@@ -416,10 +418,19 @@ async function applyGeneratedFileVisibility() {
 
   if (mode === 'nest') {
     const patterns = { ...(explorer.get('fileNesting.patterns') || {}) };
+    let changed = false;
     if (patterns['*.dartx'] !== '${capture}.dartx.dart') {
       patterns['*.dartx'] = '${capture}.dartx.dart';
-      await explorer.update('fileNesting.patterns', patterns, target);
+      changed = true;
     }
+    // `routes.g.dart` belongs under `routes.dart` for the same reason. Only
+    // added when there is no `*.dart` rule already: someone who wrote their own
+    // meant it, and overwriting it would be rude.
+    if (patterns['*.dart'] === undefined) {
+      patterns['*.dart'] = '${capture}.g.dart';
+      changed = true;
+    }
+    if (changed) await explorer.update('fileNesting.patterns', patterns, target);
   }
 }
 
@@ -484,6 +495,46 @@ async function startLanguageServer(context) {
     return false;
   }
 }
+
+
+// ---------------------------------------------------------------------------
+// The route a file serves
+// ---------------------------------------------------------------------------
+
+/**
+ * Shows a page's own URL above its component.
+ *
+ * Under file-system routing the URL is in the folder names, which is the point
+ * — but it is spread over four of them, and `[id]` is not what the router calls
+ * it. This says `/todo/:id` in the one place you are already looking. It is
+ * pure path arithmetic, so it is right before the first build and stays right
+ * while you rename things.
+ *
+ * @type {vscode.CodeLensProvider}
+ */
+const routeLens = {
+  provideCodeLenses(doc) {
+    if (!config().get('showRoutePath', true)) return [];
+    const route = routeFor(doc.uri.path);
+    if (!route) return [];
+
+    // Above the component if there is one, so the lens sits with the thing it
+    // describes rather than on the license header.
+    const text = doc.getText();
+    const declaration = /^\s*Component\s+[A-Za-z_$][\w$]*\s*\(/m.exec(text);
+    const line = declaration
+      ? doc.positionAt(declaration.index).line
+      : 0;
+
+    return [new vscode.CodeLens(new vscode.Range(line, 0, line, 0), {
+      title: routeLabel(route),
+      tooltip: `Generated from ${vscode.workspace.asRelativePath(doc.uri)}. `
+        + 'Click to copy the path.',
+      command: 'dartx.copyRoutePath',
+      arguments: [route.url],
+    })];
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Activation
@@ -553,6 +604,13 @@ function activate(context) {
       runInTerminal('dart run build_runner watch --delete-conflicting-outputs')),
     vscode.commands.registerCommand('dartx.compileFile', compileFile),
     vscode.commands.registerCommand('dartx.showReferences', showReferences),
+    vscode.commands.registerCommand('dartx.copyRoutePath', async (path) => {
+      await vscode.env.clipboard.writeText(path);
+      vscode.window.setStatusBarMessage(`dartx: copied ${path}`, 2000);
+    }),
+    vscode.languages.registerCodeLensProvider(
+      [{ language: 'dartx' }, { language: 'dart', pattern: '**/routes/**' }],
+      routeLens),
     vscode.commands.registerCommand('dartx.openGenerated', openGenerated),
     vscode.commands.registerCommand('dartx.restartServer', async () => {
       for (const server of servers.values()) server.dispose();

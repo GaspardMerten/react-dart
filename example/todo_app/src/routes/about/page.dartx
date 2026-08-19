@@ -6,6 +6,7 @@ library;
 
 import 'package:reactx/reactx.dart';
 import 'package:reactx/router.dart';
+import '../../routes.dart';
 
 /// Kept as a Dart string so the indentation survives exactly as written.
 const _tree = '''
@@ -69,3 +70,6 @@ Component AboutPage() => <section class="stack">
         numbers</Link>.
       </p>
     </section>;
+
+/// Picked up by the generator and hung off this route's `title`.
+const title = PageInfo('About · reactx', 'How this Dart app is put together.');

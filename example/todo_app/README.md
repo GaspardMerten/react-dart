@@ -35,8 +35,21 @@ example/todo_app/
   main.dart                hydrates the same tree in the browser
   src/
     app.dartx              the whole shell: one RouterScope
-    routes.dart            the route tree — URL, guard, loader, page metadata
+    routes.dart            what the folder names cannot say: the guard, the page
+                           metadata type, and a re-export of the generated table
+    routes.g.dart          GENERATED — the Route tree, written by build_runner
     styles.dart            the stylesheet, inlined into every response
+    routes/                the URL space, as folders
+      layout.dartx         the shell: header, nav, navigation indicator, footer
+      page.dartx           /
+      about/page.dartx     /about
+      signin/page.dartx    /signin
+      stats/page.dartx     /stats
+      todo/[id]/
+        page.dartx         /todo/:id       — loader, encode, decode, title
+        error.dartx        that route's error boundary
+        edit/page.dartx    /todo/:id/edit  — const middleware = [requireSignedIn]
+      [...rest]/page.dartx anything else
     models/
       todo.dart            Todo, Filter, seed data — imports nothing from reactx
       session.dart         who is asking; the value a guard needs
@@ -45,21 +58,18 @@ example/todo_app/
     state/
       todo_store.dart      actions, reducer, and one defineStore declaration
     components/
-      layout.dartx         header, nav, navigation indicator, footer
       todo_form.dartx      controlled input + tag select
       todo_item.dartx      one row
       filter_bar.dartx     All / Active / Done
       stat_card.dartx      a labelled number — the clearest look at typed props
-    pages/
-      todos_page.dartx     /
-      todo_detail_page.dartx  /todo/:id      — loaded by its route
-      todo_edit_page.dartx    /todo/:id/edit — behind a guard, nested
-      todo_error_page.dartx   the detail route's error boundary
-      sign_in_page.dartx      /signin
-      stats_page.dartx        /stats
-      about_page.dartx        /about
-      not_found_page.dartx    anything else
 ```
+
+**The route table is generated, not scanned.** `routes/` is the URL space, and
+`dart run build_runner build` turns it into `routes.g.dart` — ordinary `Route`
+objects, the file this example used to keep by hand. Open it: there is no magic
+to take on faith, and a route the conventions cannot express is still a `Route`
+you add to the list yourself. What each route *does* stays in its own page file,
+picked up by name: `loader`, `middleware`, `encode`, `decode`, `title`.
 
 The rule the structure follows: **each layer may only import from the layer
 below it.** Pages use components and the store; components use the store and the
@@ -89,7 +99,7 @@ concurrently without them interfering — including their *sessions*, which is w
 static.
 
 **The router owns what is easy to get wrong.** Which route wins is decided by
-specificity, not by the order of `routes.dart`. Whether you may open a route is
+specificity, not by the order of the generated table. Whether you may open a route is
 decided by `requireSignedIn` before any loader runs, so `TodoEditPage` has no
 idea it is protected. And a route's data is fetched before its page renders, so
 no page has a loading branch, a `useEffect`, or an opinion about which of the

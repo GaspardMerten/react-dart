@@ -2,6 +2,41 @@
 
 ## 0.3.0
 
+**File-system routing, TanStack-style.** A `routes/` directory now generates the
+route table you would otherwise have written:
+
+```
+routes/
+  layout.dartx                 the shell; renders <Outlet />
+  page.dartx                   /
+  todo/[id]/page.dartx         /todo/:id
+  todo/[id]/error.dartx        that route's error boundary
+  todo/[id]/edit/page.dartx    /todo/:id/edit
+  (marketing)/about/page.dartx /about — a (group) folder adds no segment
+  [...rest]/page.dartx         the catch-all
+```
+
+The distinction from Next.js is the one that matters: **nothing scans a
+directory at runtime.** `build_runner` writes `routes.g.dart` — ordinary `Route`
+objects — and the server and the browser share it. You can open the file and
+read exactly what you got, and a route the conventions cannot express is still a
+`Route` you add to the list by hand.
+
+What a route *does* is declared in its own page file and picked up by name:
+`loader`, `middleware`, `encode`, `decode`, `title`. Generated names follow the
+path (`todo/[id]` is `todoIdRoute`, the root layout is `rootRoute`, the
+catch-all is `catchAllRoute`), and `useLoaderData` still takes the **route
+object** — there is no string to mistype. TanStack's own `$id` and bare `$`
+spellings are accepted alongside `[id]` and `[...rest]`.
+
+`reactx serve` runs the generator on every rebuild, so a new page file is live
+without a separate `build_runner` run.
+
+Enable it with `reactx|routes` in `build.yaml`; it defaults to
+`lib/routes` -> `lib/routes.g.dart`. `example/todo_app` is ported onto it: the
+hand-written table is gone, and `routes.dart` now holds only the guard, the page
+metadata type, and a re-export.
+
 **Completion in markup.** Typing inside a `{…}` expression always worked, since
 that is ordinary Dart. Three places it did not:
 

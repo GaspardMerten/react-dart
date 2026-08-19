@@ -2,156 +2,532 @@
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
   "name": "dartx",
   "scopeName": "source.dartx",
-  "comment": "Dart with JSX-style markup. Markup patterns are tried first; everything else falls through to the Dart grammar, exactly as the transpiler treats the file.",
+  "comment": "Dart with JSX-style markup. An element spans from its opening tag to its closing tag, so what sits between them is markup text \u2014 not Dart \u2014 and only `{...}`, nested tags and comments are anything else. Everything outside an element falls through to the Dart grammar, exactly as the transpiler treats the file.",
   "patterns": [
-    { "include": "#jsx-comment" },
-    { "include": "#html-comment" },
-    { "include": "#fragment" },
-    { "include": "#tag-close" },
-    { "include": "#tag-open-component" },
-    { "include": "#tag-open-host" },
-    { "include": "source.dart" }
+    {
+      "include": "#dart-lexical"
+    },
+    {
+      "include": "#jsx-comment"
+    },
+    {
+      "include": "#html-comment"
+    },
+    {
+      "include": "#fragment"
+    },
+    {
+      "include": "#element-void"
+    },
+    {
+      "include": "#element-component"
+    },
+    {
+      "include": "#element-host"
+    },
+    {
+      "include": "#element-unknown"
+    },
+    {
+      "include": "source.dart"
+    }
   ],
   "repository": {
+    "markup": {
+      "comment": "What may appear between an element's tags. Anything else is text.",
+      "patterns": [
+        {
+          "include": "#jsx-comment"
+        },
+        {
+          "include": "#html-comment"
+        },
+        {
+          "include": "#expression"
+        },
+        {
+          "include": "#fragment"
+        },
+        {
+          "include": "#element-void"
+        },
+        {
+          "include": "#element-component"
+        },
+        {
+          "include": "#element-host"
+        },
+        {
+          "include": "#element-unknown"
+        },
+        {
+          "include": "#entity"
+        },
+        {
+          "include": "#tag-close"
+        }
+      ]
+    },
+    "dart-lexical": {
+      "comment": "Dart comments and string literals, claimed before any markup rule gets a look. A <select> in a doc comment is prose, and a URL in a string is a URL - the transpiler scanner skips both for the same reason.",
+      "patterns": [
+        {
+          "name": "comment.block.documentation.dart",
+          "match": "///.*$"
+        },
+        {
+          "name": "comment.line.double-slash.dart",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.dart",
+          "begin": "/\\*",
+          "end": "\\*/"
+        },
+        {
+          "name": "string.quoted.triple.dart",
+          "begin": "r'''",
+          "end": "'''"
+        },
+        {
+          "name": "string.quoted.triple.dart",
+          "begin": "r\"\"\"",
+          "end": "\"\"\""
+        },
+        {
+          "name": "string.interpolated.triple.dart",
+          "begin": "'''",
+          "end": "'''",
+          "patterns": [
+            {
+              "include": "#dart-escape"
+            },
+            {
+              "include": "#dart-interpolation"
+            }
+          ]
+        },
+        {
+          "name": "string.interpolated.triple.dart",
+          "begin": "\"\"\"",
+          "end": "\"\"\"",
+          "patterns": [
+            {
+              "include": "#dart-escape"
+            },
+            {
+              "include": "#dart-interpolation"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.dart",
+          "begin": "r'",
+          "end": "'|(?=$)"
+        },
+        {
+          "name": "string.quoted.double.dart",
+          "begin": "r\"",
+          "end": "\"|(?=$)"
+        },
+        {
+          "name": "string.interpolated.single.dart",
+          "begin": "'",
+          "end": "'|(?=$)",
+          "patterns": [
+            {
+              "include": "#dart-escape"
+            },
+            {
+              "include": "#dart-interpolation"
+            }
+          ]
+        },
+        {
+          "name": "string.interpolated.double.dart",
+          "begin": "\"",
+          "end": "\"|(?=$)",
+          "patterns": [
+            {
+              "include": "#dart-escape"
+            },
+            {
+              "include": "#dart-interpolation"
+            }
+          ]
+        }
+      ]
+    },
+    "dart-escape": {
+      "match": "\\\\.",
+      "name": "constant.character.escape.dart"
+    },
+    "dart-interpolation": {
+      "patterns": [
+        {
+          "begin": "\\$\\{",
+          "end": "\\}",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.template-expression.dart"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.template-expression.dart"
+            }
+          },
+          "contentName": "meta.embedded.line.dart",
+          "patterns": [
+            {
+              "include": "#brace-block"
+            },
+            {
+              "include": "source.dart"
+            }
+          ]
+        },
+        {
+          "match": "\\$[A-Za-z_$][\\w$]*",
+          "name": "variable.other.dart"
+        }
+      ]
+    },
     "jsx-comment": {
       "name": "comment.block.dartx",
       "begin": "\\{\\s*/\\*",
       "end": "\\*/\\s*\\}"
     },
-
     "html-comment": {
       "name": "comment.block.html.dartx",
       "begin": "<!--",
       "end": "-->"
     },
-
     "fragment": {
-      "match": "</?>",
-      "name": "punctuation.definition.tag.fragment.dartx"
+      "comment": "A <>\u2026</> group, which renders its children with no element of its own.",
+      "name": "meta.tag.fragment.dartx",
+      "begin": "(<>)",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.fragment.dartx"
+        }
+      },
+      "end": "(</>)",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.fragment.dartx"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#markup"
+        }
+      ]
     },
-
+    "element-component": {
+      "comment": "A capitalised or dotted name is a Dart reference to a component.",
+      "name": "meta.tag.component.dartx",
+      "begin": "(?<![\\w\\]$.])(<)(?!(?:DateTime|Duration|Function|Iterable|Future|Object|Stream|String|Symbol|Never|Props|VNode|List|Null|Map|Set|Uri)\\s*[,>])((?:[A-Z_$][\\w$]*(?:\\.[A-Za-z_$][\\w$]*)*)|(?:[a-z][\\w$]*(?:\\.[A-Za-z_$][\\w$]*)+))(?!>\\s*\\[)(?!>\\s*\\{[^{}]*\\}\\s*[;,)\\]])(?=[\\s/>])",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.begin.dartx"
+        },
+        "2": {
+          "name": "support.class.component.dartx"
+        }
+      },
+      "end": "(/>)|(</)([-\\w$.:]*)\\s*(>)",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.end.dartx"
+        },
+        "2": {
+          "name": "punctuation.definition.tag.begin.dartx"
+        },
+        "3": {
+          "name": "support.class.component.dartx"
+        },
+        "4": {
+          "name": "punctuation.definition.tag.end.dartx"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#tag-attributes"
+        },
+        {
+          "include": "#tag-end"
+        },
+        {
+          "include": "#markup"
+        }
+      ]
+    },
+    "element-host": {
+      "comment": "A known HTML element, or any name with a dash in it (a custom element).",
+      "name": "meta.tag.host.dartx",
+      "begin": "(?<![\\w\\]$.])(<)((?:blockquote|figcaption|fieldset|progress|textarea|article|caption|details|picture|section|summary|button|canvas|dialog|figure|footer|header|iframe|legend|option|script|select|strong|aside|audio|label|small|style|table|tbody|tfoot|thead|title|video|abbr|body|code|form|head|main|mark|span|time|div|nav|pre|sup|svg|dd|dl|dt|em|h1|h2|h3|h4|h5|h6|li|ol|td|th|tr|ul|a|b|i|p)|[a-z][\\w$]*-[-\\w$]*)\\b(?!>\\s*\\[)(?!>\\s*\\{[^{}]*\\}\\s*[;,)\\]])(?=[\\s/>])",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.begin.dartx"
+        },
+        "2": {
+          "name": "entity.name.tag.dartx"
+        }
+      },
+      "end": "(/>)|(</)([-\\w$.:]*)\\s*(>)",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.end.dartx"
+        },
+        "2": {
+          "name": "punctuation.definition.tag.begin.dartx"
+        },
+        "3": {
+          "name": "entity.name.tag.dartx"
+        },
+        "4": {
+          "name": "punctuation.definition.tag.end.dartx"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#tag-attributes"
+        },
+        {
+          "include": "#tag-end"
+        },
+        {
+          "include": "#markup"
+        }
+      ]
+    },
+    "element-void": {
+      "comment": "HTML void elements never take a closing tag, with or without the slash.",
+      "name": "meta.tag.host.void.dartx",
+      "begin": "(?<![\\w\\]$.])(<)((?:source|embed|input|param|track|area|base|link|meta|col|img|wbr|br|hr))\\b(?=[\\s/>])",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.begin.dartx"
+        },
+        "2": {
+          "name": "entity.name.tag.dartx"
+        }
+      },
+      "end": "(/?>)",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.end.dartx"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#tag-attributes"
+        }
+      ]
+    },
+    "element-unknown": {
+      "comment": "A lowercase name that is neither a known element nor a custom one. It is coloured as a tag, but its children are not claimed: guessing wrong here would swallow the rest of the file.",
+      "name": "meta.tag.host.dartx",
+      "begin": "(?<![\\w\\]$.])(<)(?!(?:dynamic|double|bool|void|int|num)\\b)([a-z][-\\w$.:]*)(?!>\\s*\\[)(?!>\\s*\\{[^{}]*\\}\\s*[;,)\\]])(?=[\\s/>])",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.begin.dartx"
+        },
+        "2": {
+          "name": "entity.name.tag.dartx"
+        }
+      },
+      "end": "(/?>)|(?=[;)])",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.end.dartx"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#tag-attributes"
+        }
+      ]
+    },
+    "tag-attributes": {
+      "comment": "The attribute list, from just after the tag name to the `>`. Anchored with \\G so the same patterns cannot fire again among the children.",
+      "begin": "\\G(?![/>])",
+      "end": "(?=/?>)",
+      "patterns": [
+        {
+          "include": "#attribute-expression"
+        },
+        {
+          "include": "#attribute-spread"
+        },
+        {
+          "include": "#attribute-string"
+        },
+        {
+          "include": "#attribute-name"
+        }
+      ]
+    },
+    "tag-end": {
+      "comment": "The `>` that ends an opening tag; the children start after it. A bare `>` in text is coloured the same, which is the cheaper mistake \u2014 `&gt;` is what belongs there anyway.",
+      "match": ">",
+      "name": "punctuation.definition.tag.end.dartx"
+    },
     "tag-close": {
       "match": "(</)([A-Za-z_$][-\\w$.:]*)\\s*(>)",
       "captures": {
-        "1": { "name": "punctuation.definition.tag.begin.dartx" },
-        "2": { "name": "entity.name.tag.dartx" },
-        "3": { "name": "punctuation.definition.tag.end.dartx" }
+        "1": {
+          "name": "punctuation.definition.tag.begin.dartx"
+        },
+        "2": {
+          "name": "entity.name.tag.dartx"
+        },
+        "3": {
+          "name": "punctuation.definition.tag.end.dartx"
+        }
       }
     },
-
-    "tag-open-component": {
-      "comment": "Capitalised or dotted names are Dart references to components.",
-      "name": "meta.tag.component.dartx",
-      "begin": "(?<![\\w\\]$])(<)((?:[A-Z_$][-\\w$.:]*)|(?:[a-z][\\w$]*(?:\\.[A-Za-z_$][\\w$]*)+))(?!>\\s*\\[)(?=[\\s/>])",
+    "expression": {
+      "comment": "A {...} child: ordinary Dart, which may contain further markup.",
+      "begin": "(\\{)",
       "beginCaptures": {
-        "1": { "name": "punctuation.definition.tag.begin.dartx" },
-        "2": { "name": "support.class.component.dartx" }
+        "1": {
+          "name": "punctuation.section.embedded.begin.dartx"
+        }
       },
-      "end": "(/?>)|(?=[;)])",
+      "end": "(\\})",
       "endCaptures": {
-        "1": { "name": "punctuation.definition.tag.end.dartx" }
+        "1": {
+          "name": "punctuation.section.embedded.end.dartx"
+        }
       },
-      "patterns": [{ "include": "#tag-body" }]
-    },
-
-    "tag-open-host": {
-      "comment": "Lowercase names are host elements and become tag strings.",
-      "name": "meta.tag.host.dartx",
-      "begin": "(?<![\\w\\]$])(<)([a-z][-\\w$.:]*)(?!>\\s*\\[)(?=[\\s/>])",
-      "beginCaptures": {
-        "1": { "name": "punctuation.definition.tag.begin.dartx" },
-        "2": { "name": "entity.name.tag.dartx" }
-      },
-      "end": "(/?>)|(?=[;)])",
-      "endCaptures": {
-        "1": { "name": "punctuation.definition.tag.end.dartx" }
-      },
-      "patterns": [{ "include": "#tag-body" }]
-    },
-
-    "tag-body": {
+      "contentName": "meta.embedded.block.dart",
       "patterns": [
-        { "include": "#attribute-expression" },
-        { "include": "#attribute-spread" },
-        { "include": "#attribute-string" },
-        { "include": "#attribute-name" }
+        {
+          "include": "#embedded-dart"
+        }
       ]
     },
-
     "attribute-expression": {
       "begin": "(=)\\s*(\\{)",
       "beginCaptures": {
-        "1": { "name": "keyword.operator.assignment.dartx" },
-        "2": { "name": "punctuation.section.embedded.begin.dartx" }
+        "1": {
+          "name": "keyword.operator.assignment.dartx"
+        },
+        "2": {
+          "name": "punctuation.section.embedded.begin.dartx"
+        }
       },
       "end": "(\\})",
       "endCaptures": {
-        "1": { "name": "punctuation.section.embedded.end.dartx" }
-      },
-      "contentName": "meta.embedded.block.dart",
-      "patterns": [{ "include": "#embedded-dart" }]
-    },
-
-    "attribute-spread": {
-      "begin": "(\\{)(?=\\s*\\.\\.\\.)",
-      "beginCaptures": {
-        "1": { "name": "punctuation.section.embedded.begin.dartx" }
-      },
-      "end": "(\\})",
-      "endCaptures": {
-        "1": { "name": "punctuation.section.embedded.end.dartx" }
+        "1": {
+          "name": "punctuation.section.embedded.end.dartx"
+        }
       },
       "contentName": "meta.embedded.block.dart",
       "patterns": [
-        { "match": "\\.\\.\\.", "name": "keyword.operator.spread.dartx" },
-        { "include": "#embedded-dart" }
+        {
+          "include": "#embedded-dart"
+        }
       ]
     },
-
+    "attribute-spread": {
+      "begin": "(\\{)(?=\\s*\\.\\.\\.)",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.section.embedded.begin.dartx"
+        }
+      },
+      "end": "(\\})",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.section.embedded.end.dartx"
+        }
+      },
+      "contentName": "meta.embedded.block.dart",
+      "patterns": [
+        {
+          "match": "\\.\\.\\.",
+          "name": "keyword.operator.spread.dartx"
+        },
+        {
+          "include": "#embedded-dart"
+        }
+      ]
+    },
     "attribute-name": {
       "match": "([A-Za-z_$][-\\w$.:]*)",
       "name": "entity.other.attribute-name.dartx"
     },
-
     "attribute-string": {
       "patterns": [
         {
           "name": "string.quoted.double.dartx",
           "begin": "\"",
           "end": "\"",
-          "patterns": [{ "include": "#entity" }]
+          "patterns": [
+            {
+              "include": "#entity"
+            }
+          ]
         },
         {
           "name": "string.quoted.single.dartx",
           "begin": "'",
           "end": "'",
-          "patterns": [{ "include": "#entity" }]
+          "patterns": [
+            {
+              "include": "#entity"
+            }
+          ]
         }
       ]
     },
-
     "entity": {
       "match": "&(#x[0-9a-fA-F]+|#\\d+|[a-zA-Z]+);",
       "name": "constant.character.entity.dartx"
     },
-
     "embedded-dart": {
       "comment": "Dart inside {...}, including nested braces and further markup.",
       "patterns": [
-        { "include": "#brace-block" },
-        { "include": "#jsx-comment" },
-        { "include": "#fragment" },
-        { "include": "#tag-close" },
-        { "include": "#tag-open-component" },
-        { "include": "#tag-open-host" },
-        { "include": "source.dart" }
+        {
+          "include": "#dart-lexical"
+        },
+        {
+          "include": "#brace-block"
+        },
+        {
+          "include": "#jsx-comment"
+        },
+        {
+          "include": "#fragment"
+        },
+        {
+          "include": "#element-void"
+        },
+        {
+          "include": "#element-component"
+        },
+        {
+          "include": "#element-host"
+        },
+        {
+          "include": "#element-unknown"
+        },
+        {
+          "include": "source.dart"
+        }
       ]
     },
-
     "brace-block": {
       "begin": "\\{",
       "end": "\\}",
-      "patterns": [{ "include": "#embedded-dart" }]
+      "patterns": [
+        {
+          "include": "#embedded-dart"
+        }
+      ]
     }
   }
 }

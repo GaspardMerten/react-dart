@@ -1,34 +1,36 @@
-/// The route tree: the one place that maps a URL to a page.
+/// Everything about routing that the file conventions do not cover.
 ///
-/// This is a `Route` tree rather than a flat table, so the router owns the
-/// parts that are easy to get wrong — which route wins, whether you may open
-/// it, and having its data ready before it renders. Both halves of the app read
-/// this same list: the server to resolve a request, the client to resolve a
-/// navigation.
+/// The table itself is generated: `routes/` maps a folder to a URL, so there is
+/// no list here to keep in sync with the pages. What is left is the handful of
+/// things a directory layout cannot express — a guard, the shape of page
+/// metadata, and two questions the server asks about a resolved location — plus
+/// a re-export, so the rest of the app has one import rather than two.
 ///
-/// Two things are worth reading closely:
+/// ```
+/// routes/
+///   layout.dartx              the chrome, with an <Outlet />
+///   page.dartx                /
+///   about/page.dartx          /about
+///   signin/page.dartx         /signin
+///   stats/page.dartx          /stats
+///   todo/[id]/page.dartx      /todo/:id   — loader, encode, decode, title
+///   todo/[id]/error.dartx                 — rendered when that loader throws
+///   todo/[id]/edit/page.dartx /todo/:id/edit — middleware
+///   [...rest]/page.dartx      the catch-all
+/// ```
 ///
-/// * `*` is written *after* `todo/:id` and never steals from it, because
-///   matching is ranked by specificity rather than by order. Shuffling this
-///   file cannot change which page you get.
-/// * `TodoEditPage` has no idea it is protected. `requireSignedIn` settles that
-///   before any loader runs, so the page never has to remember to check.
+/// Nothing scans that directory at runtime. `dart run build_runner build`
+/// writes `routes.g.dart`, an ordinary `Route` tree — open it and you will find
+/// the file this example used to have, only nobody typed it. A route the
+/// conventions cannot express is still a `Route` you can add to the list.
 library;
 
 import 'package:reactx/router.dart';
 
-import 'components/layout.dartx.dart';
-import 'data/todo_api.dart';
 import 'models/session.dart';
-import 'models/todo.dart';
-import 'pages/about_page.dartx.dart';
-import 'pages/not_found_page.dartx.dart';
-import 'pages/sign_in_page.dartx.dart';
-import 'pages/stats_page.dartx.dart';
-import 'pages/todo_detail_page.dartx.dart';
-import 'pages/todo_edit_page.dartx.dart';
-import 'pages/todo_error_page.dartx.dart';
-import 'pages/todos_page.dartx.dart';
+import 'routes.g.dart';
+
+export 'routes.g.dart';
 
 /// The id of the `<script>` the server's loader results ride in, agreed on by
 /// `server.dart` (which writes it) and `main.dart` (which reads it). One
@@ -37,6 +39,9 @@ const routerTransferId = '__reactx_router';
 
 /// Page metadata, hung off [Route.title]. The router never reads it; the server
 /// uses it for `<title>` and the description meta tag.
+///
+/// A page declares its own: `const title = PageInfo('Stats · reactx', '…');`
+/// at the top level of the page file, which the generator picks up by name.
 class PageInfo {
   const PageInfo(this.title, this.description);
   final String title;
@@ -47,88 +52,14 @@ class PageInfo {
 /// were going.
 ///
 /// A guard is a plain function: it gets the location and whatever the caller
-/// passed as `extra`, and answers with [Next], [Redirect] or [Halt].
+/// passed as `extra`, and answers with [Next], [Redirect] or [Halt]. A page
+/// opts in with `const middleware = [requireSignedIn];` — see
+/// `routes/todo/[id]/edit/page.dartx`, which is protected without knowing it.
 MiddlewareResult requireSignedIn(RouteContext context) {
   final session = context.extra;
   if (session is Session && session.signedIn) return const Next();
   return Redirect('/signin?next=${Uri.encodeComponent('${context.location}')}');
 }
-
-/// `/todo/:id` — declared on its own so pages can name it in `useLoaderData`.
-///
-/// The route object is the key. There is no `'todo'` string to keep in sync
-/// between the table and the page that reads its data.
-final todoDetailRoute = Route(
-  path: 'todo/:id',
-  element: const TodoDetailPageProps(),
-  title: const PageInfo('Todo · reactx', 'One todo, loaded by its route.'),
-  loader: (context) => fetchTodo(context.params['id']!),
-  // With these, the server's fetch travels to the browser inside the page and
-  // the client does not repeat it. Drop them and everything still works — the
-  // client just loads it again.
-  encode: (todo) => encodeTodo(todo! as Todo),
-  decode: (json) => decodeTodo(json! as Map<String, Object?>),
-  errorElement: const TodoErrorPageProps(),
-  children: [
-    Route(
-      path: 'edit',
-      element: const TodoEditPageProps(),
-      title: const PageInfo('Edit · reactx', 'Behind a guard.'),
-      middleware: [requireSignedIn],
-    ),
-  ],
-);
-
-/// The index route: what `/` renders.
-///
-/// It deliberately has *no* loader. The list is owned by `todoStore` and the
-/// user edits it, so a loader here would fetch a value the page then ignores —
-/// which is the wrong lesson. Loaders are for data the URL identifies and the
-/// page cannot invent; `/todo/:id` below is that case.
-final todosRoute = Route(
-  index: true,
-  element: const TodosPageProps(),
-  title: const PageInfo(
-      'Todos · reactx', 'A todo list rendered on the server, then hydrated.'),
-);
-
-/// The catch-all, named so the server can tell a 404 from a page.
-final notFoundRoute = Route(
-  path: '*',
-  element: const NotFoundPageProps(),
-  title: const PageInfo('Not found · reactx', 'No such page.'),
-);
-
-/// The whole tree. [Layout] is the root route: it renders the chrome and an
-/// `<Outlet />` where the page goes.
-final routes = <Route>[
-  Route(
-    path: '/',
-    element: const LayoutProps(),
-    children: [
-      todosRoute,
-      Route(
-        path: 'stats',
-        element: const StatsPageProps(),
-        title: const PageInfo(
-            'Stats · reactx', 'Progress by tag, derived from the store.'),
-      ),
-      Route(
-        path: 'about',
-        element: const AboutPageProps(),
-        title: const PageInfo(
-            'About · reactx', 'How this Dart app is put together.'),
-      ),
-      Route(
-        path: 'signin',
-        element: const SignInPageProps(),
-        title: const PageInfo('Sign in · reactx', 'The guard sent you here.'),
-      ),
-      todoDetailRoute,
-      notFoundRoute,
-    ],
-  ),
-];
 
 /// The metadata for a resolved location: the deepest route that carries any.
 PageInfo pageInfoFor(List<RouteMatch> matches) {
@@ -141,5 +72,8 @@ PageInfo pageInfoFor(List<RouteMatch> matches) {
 /// Whether a resolved location fell through to the catch-all, so the server can
 /// answer 404 rather than 200 with a "not found" page — a distinction crawlers
 /// and monitoring both care about.
+///
+/// [catchAllRoute] is generated from `routes/[...rest]/`, and this compares the
+/// route *object*. There is no name to mistype.
 bool isNotFound(List<RouteMatch> matches) =>
-    matches.isNotEmpty && identical(matches.last.route, notFoundRoute);
+    matches.isNotEmpty && identical(matches.last.route, catchAllRoute);

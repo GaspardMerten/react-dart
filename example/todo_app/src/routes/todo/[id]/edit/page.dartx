@@ -14,11 +14,11 @@ import 'package:reactx/events.dart';
 import 'package:reactx/reactx.dart';
 import 'package:reactx/router.dart';
 
-import '../models/todo.dart';
-import '../routes.dart';
+import '../../../../models/todo.dart';
+import '../../../../routes.dart';
 
 Component TodoEditPage() {
-  final todo = useLoaderData<Todo>(todoDetailRoute);
+  final todo = useLoaderData<Todo>(todoIdRoute);
 
   return <section class="panel-edit">
     <h2>Edit</h2>
@@ -39,3 +39,10 @@ Component TodoEditPage() {
     </p>
   </section>;
 }
+
+/// The whole of this page's protection. It does not know it is guarded, and
+/// `requireSignedIn` runs before the loader below it ever would.
+const middleware = [requireSignedIn];
+
+/// Picked up by the generator and hung off this route's `title`.
+const title = PageInfo('Edit · reactx', 'Behind a guard.');
