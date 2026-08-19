@@ -48,6 +48,9 @@ final class _Document {
   int version = 1;
 }
 
+/// `Component Name(` — a component's declaration, wherever it appears.
+final _componentDeclaration = RegExp(r'\bComponent\s+([A-Za-z_$][\w$]*)\s*[(<]');
+
 /// A question asked about a `.dartx`, kept until its answer comes back.
 final class _Asked {
   const _Asked({required this.method, required this.uri, required this.spot});
@@ -113,6 +116,10 @@ class DartxLanguageServer {
   /// which file it belongs to — the question it answers is the only record.
   final Map<Object, _Asked> _inFlight = {};
 
+  /// Questions this server asked the analyser on its own behalf.
+  final Map<String, Completer<Map<String, Object?>>> _internal = {};
+  int _nextInternalId = 0;
+
   void _log(String message) => logSink?.writeln('[dartx-lsp] $message');
 
   Future<void> start() async {
@@ -162,6 +169,15 @@ class DartxLanguageServer {
       case 'textDocument/didClose':
         _syncDocument(method!, message);
         return;
+    }
+
+    if (method == 'textDocument/codeLens') {
+      _lensesFor(message);
+      return;
+    }
+    if (method == 'codeLens/resolve') {
+      unawaited(_resolveLens(message));
+      return;
     }
 
     if (method != null && _positionRequests.contains(method)) {
@@ -379,6 +395,11 @@ class DartxLanguageServer {
   // -- analyser -> editor ----------------------------------------------------
 
   void _fromAnalyser(Map<String, Object?> message) {
+    final internal = _internal.remove(message['id']);
+    if (internal != null) {
+      internal.complete(message);
+      return;
+    }
     if (_initializeId != null && message['id'] == _initializeId) {
       _initializeId = null;
       _toEditor(_claimDartx(message));
@@ -485,6 +506,10 @@ class DartxLanguageServer {
           'referencesProvider': true,
           'hoverProvider': true,
           'documentHighlightProvider': true,
+          // Answered here rather than forwarded: the analyser's lenses are
+          // about the generated Dart, and the useful one for a component is a
+          // count of the markup that uses it.
+          'codeLensProvider': const {'resolveProvider': true},
           'completionProvider': const {
             // Enough to be useful inside an element. An unclosed tag has
             // nothing to compile, so completion there stays empty.
@@ -802,6 +827,115 @@ class DartxLanguageServer {
   void _toEditor(Object? message) {
     if (message is! Map<String, Object?>) return;
     output.add(frame(message));
+  }
+
+  // -- Code lenses ----------------------------------------------------------
+
+  /// One lens per component in the file, above its declaration.
+  ///
+  /// The count is left for [_resolveLens]: working it out means asking the
+  /// analyser once per component, and a file with a dozen of them should not
+  /// pay for twelve round trips before anything appears on screen.
+  void _lensesFor(Map<String, Object?> message) {
+    final uri = ((message['params'] as Map?)?['textDocument']
+        as Map?)?['uri'] as String?;
+    final document = uri == null ? null : _documents[uri];
+    if (document == null) {
+      _toEditor({'jsonrpc': '2.0', 'id': message['id'], 'result': const []});
+      return;
+    }
+
+    final lenses = <Object?>[];
+    final lines = document.source.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      final match = _componentDeclaration.firstMatch(lines[i]);
+      if (match == null) continue;
+      final name = match.group(1)!;
+      final column = lines[i].indexOf(name, match.start);
+      lenses.add({
+        'range': {
+          'start': {'line': i, 'character': column},
+          'end': {'line': i, 'character': column + name.length},
+        },
+        // Carried through resolve, so the second half does not have to find
+        // the declaration again.
+        'data': {'uri': uri, 'name': name, 'line': i, 'character': column},
+      });
+    }
+
+    _toEditor({'jsonrpc': '2.0', 'id': message['id'], 'result': lenses});
+  }
+
+  /// Fills in a lens with the number of places the markup uses the component,
+  /// and the command that shows them.
+  Future<void> _resolveLens(Map<String, Object?> message) async {
+    final lens = Map<String, Object?>.from(
+        message['params'] as Map<String, Object?>? ?? const {});
+    final data = lens['data'] as Map<String, Object?>?;
+    final uri = data?['uri'] as String?;
+    final name = data?['name'] as String?;
+    final document = uri == null ? null : _documents[uri];
+
+    if (document == null || name == null || uri == null) {
+      _toEditor({'jsonrpc': '2.0', 'id': message['id'], 'result': lens});
+      return;
+    }
+
+    // The same redirection find-references uses: the markup names the props
+    // type, not the function, so that is what the call sites refer to.
+    final target = _classDeclaration(document.generated, '${name}Props');
+    if (target == null) {
+      _toEditor({'jsonrpc': '2.0', 'id': message['id'], 'result': lens});
+      return;
+    }
+
+    final answer = await _ask('textDocument/references', {
+      'textDocument': {'uri': _generatedUri(uri)},
+      'position': {'line': target.line, 'character': target.column},
+      'context': {'includeDeclaration': false},
+    });
+
+    final mapped = _mapLocationsBack(answer);
+    final found = ((mapped as Map<String, Object?>?)?['result'] as List?) ?? const [];
+
+    // A reference in the file that declares the component is the generated
+    // machinery standing behind it, not a use of it.
+    final uses = [
+      for (final entry in found)
+        if (entry is Map && entry['uri'] != uri) entry
+    ];
+
+    final position = {
+      'line': data!['line'] as int? ?? 0,
+      'character': data['character'] as int? ?? 0,
+    };
+
+    lens['command'] = {
+      'title': uses.isEmpty
+          ? 'no usages'
+          : '${uses.length} usage${uses.length == 1 ? '' : 's'}',
+      // Not `editor.action.showReferences`: its arguments have to be real
+      // `Uri`, `Position` and `Location` objects, and what travels over LSP is
+      // plain JSON. The extension owns the command that rebuilds them.
+      'command': 'dartx.showReferences',
+      'arguments': [uri, position, uses],
+    };
+
+    _toEditor({'jsonrpc': '2.0', 'id': message['id'], 'result': lens});
+  }
+
+  /// Puts a question of our own to the analyser and waits for the answer.
+  ///
+  /// The id is a string, so it can never collide with the editor's integers —
+  /// the two conversations share one pipe.
+  Future<Map<String, Object?>> _ask(
+      String method, Map<String, Object?> params) {
+    final id = 'dartx-${_nextInternalId++}';
+    final completer = Completer<Map<String, Object?>>();
+    _internal[id] = completer;
+    _toAnalyser({'jsonrpc': '2.0', 'id': id, 'method': method, 'params': params});
+    return completer.future
+        .timeout(const Duration(seconds: 20), onTimeout: () => const {});
   }
 
   void _toAnalyser(Map<String, Object?> message) {

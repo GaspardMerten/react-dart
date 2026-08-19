@@ -2,7 +2,7 @@
   "name": "dartx",
   "displayName": "dartx — JSX for Dart",
   "description": "Syntax highlighting, live diagnostics, tag closing and snippets for .dartx files (Dart with JSX-style markup, from the reactx package).",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "publisher": "reactx",
   "license": "MIT",
   "engines": {
@@ -83,6 +83,11 @@
       {
         "command": "dartx.restartServer",
         "title": "dartx: Restart the diagnostics server"
+      },
+      {
+        "command": "dartx.showReferences",
+        "title": "Show Component Usages",
+        "category": "dartx"
       }
     ],
     "menus": {
@@ -101,6 +106,10 @@
         {
           "command": "dartx.openGenerated",
           "when": "resourceLangId == dartx"
+        },
+        {
+          "command": "dartx.showReferences",
+          "when": "false"
         }
       ]
     },

@@ -24,7 +24,8 @@ Component Counter({int start = 0}) {
 | **Type errors, inline** | `<StatCard value={'three'} />` is underlined in the `.dartx`, on the line that wrote it — the Dart analyser's own message, not an approximation of one. |
 | **Go to definition** | On `<StatCard>`, jumps to `Component StatCard(…)` in the `.dartx` that declares it. |
 | **Hover** | The declared type of an argument, from the analyser. |
-| **Find all references** | On a component, lists the `<StatCard …>` elements that use it — not the generated code that stands behind them. |
+| **Find all references** | On a component, lists the `<StatCard …>` elements that use it — not the generated code that stands behind them. Ctrl-click the declaration, press Shift+F12, or click the lens. |
+| **Usage counts** | A **"3 usages"** lens above each component declaration. |
 | **Highlighting** | Tags, attributes, entities and embedded Dart, with the Dart grammar handling everything outside the markup. |
 | **Markup diagnostics** | The transpiler's own errors — a mismatched closing tag, a spread on a component — which the analyser cannot produce because it never sees the markup. |
 | **Tag editing** | `>` closes the tag you just opened; `</` completes the innermost open one. |

@@ -474,6 +474,61 @@ Component Elsewhere() => <section>
     expect(response['result'], isNotEmpty);
   });
 
+  test('a code lens counts the markup that uses each component', () async {
+    // The clickable affordance: "3 usages" above the declaration. It counts
+    // uses of the component, so the generated machinery standing behind it in
+    // its own file does not inflate the number.
+    const board = '''import 'package:reactx/reactx.dart';
+
+import 'card.dartx.dart';
+
+Component Wall() => <section>
+  <StatCard label="a" value={1} />
+  <StatCard label="b" value={2} />
+</section>;
+''';
+    final boardUri = Uri.file('${workspace.path}/lib/wall.dartx').toString();
+    editor.open(boardUri, board);
+
+    final cardUri = Uri.file('${workspace.path}/lib/card.dartx').toString();
+    final card = File('${workspace.path}/lib/card.dartx').readAsStringSync();
+    editor.open(cardUri, card);
+    await eventually(() => true, limit: const Duration(seconds: 12));
+
+    final lenses = (await editor.request(
+        'textDocument/codeLens', {'textDocument': {'uri': cardUri}}))['result'];
+    expect(lenses, isA<List>());
+    expect(lenses as List, hasLength(1), reason: 'one component in that file');
+
+    final declaration =
+        card.split('\n').indexWhere((l) => l.contains('Component StatCard'));
+    expect((((lenses.first as Map)['range'] as Map)['start'] as Map)['line'],
+        declaration);
+
+    final resolved = (await editor.request(
+        'codeLens/resolve', Map<String, Object?>.from(lenses.first as Map)))['result'];
+    final command = (resolved as Map)['command'] as Map?;
+    expect(command, isNotNull, reason: 'a lens with no command is not clickable');
+
+    // Its arguments have to be plain JSON — a command's arguments cross LSP
+    // untouched, so the extension is what turns them back into editor objects.
+    final arguments = command!['arguments'] as List;
+    expect(arguments, hasLength(3));
+    expect(arguments.first, cardUri);
+
+    final locations = (arguments[2] as List).cast<Map<String, Object?>>();
+    // Earlier tests in this run left their own files behind, and every one of
+    // those really does use the component — so the total is the workspace's,
+    // not this test's. What this test owns is the two in `wall.dartx`.
+    expect(locations.where((l) => '${l['uri']}'.endsWith('wall.dartx')),
+        hasLength(2));
+    expect(command['title'], '${locations.length} usages');
+    expect(locations.map((l) => l['uri']),
+        everyElement(isNot(endsWith('card.dartx'))),
+        reason: 'the count is uses of the component, not the generated code '
+            'standing behind it in its own file');
+  });
+
   test('hover on an argument reports the type the component declared',
       () async {
     const source = '''import 'package:reactx/reactx.dart';

@@ -309,6 +309,29 @@ function textUpTo(doc, offset) {
 // Commands
 // ---------------------------------------------------------------------------
 
+/**
+ * Opens the peek view on a component's usages.
+ *
+ * The built-in `editor.action.showReferences` wants real `Uri`, `Position` and
+ * `Location` objects, and what arrives over LSP is plain JSON — a code lens
+ * command's arguments are passed through untouched. So the server names this
+ * command instead, and it rebuilds what the editor needs.
+ *
+ * @param {string} uri
+ * @param {{line: number, character: number}} position
+ * @param {Array<{uri: string, range: {start: any, end: any}}>} locations
+ */
+function showReferences(uri, position, locations) {
+  const at = (/** @type {any} */ p) => new vscode.Position(p.line, p.character);
+  return vscode.commands.executeCommand(
+    'editor.action.showReferences',
+    vscode.Uri.parse(uri),
+    at(position),
+    (locations || []).map((l) => new vscode.Location(
+      vscode.Uri.parse(l.uri),
+      new vscode.Range(at(l.range.start), at(l.range.end)))));
+}
+
 /** @param {string} command */
 function runInTerminal(command) {
   const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
@@ -516,6 +539,7 @@ function activate(context) {
     vscode.commands.registerCommand('dartx.watch', () =>
       runInTerminal('dart run build_runner watch --delete-conflicting-outputs')),
     vscode.commands.registerCommand('dartx.compileFile', compileFile),
+    vscode.commands.registerCommand('dartx.showReferences', showReferences),
     vscode.commands.registerCommand('dartx.openGenerated', openGenerated),
     vscode.commands.registerCommand('dartx.restartServer', async () => {
       for (const server of servers.values()) server.dispose();

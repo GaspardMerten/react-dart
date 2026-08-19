@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.7
+
+* A **"N usages"** lens above every component declaration. Clicking it peeks
+  the markup that uses the component — `<StatCard …>`, not the generated code
+  standing behind it.
+
 ## 0.2.6
 
 * Ctrl-clicking a component's own name now offers its usages. It used to answer

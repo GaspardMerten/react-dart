@@ -8,6 +8,11 @@ Dart's own analysis server, so a `.dartx` file gets the analyser's real answers
 without a second analyser existing anywhere. Go to definition on `<StatCard />`
 lands on `Component StatCard(…)`, not on the generated props type.
 
+A **"N usages"** code lens sits above every component declaration; clicking it
+peeks the markup that uses it. Find all references does the same from the
+keyboard, and Ctrl-clicking a declaration now offers the usages rather than
+answering with the line the cursor is already on.
+
 Find all references on a component lists the markup that uses it. That one is a
 redirection rather than a translation: the markup compiles to `StatCardProps(…)`
 rather than to a call to `StatCard`, so the literal question finds one line of
