@@ -1,0 +1,621 @@
+/// Client-side routing that survives a server render.
+///
+/// There are two ways to use this, and the second is a superset of the first.
+///
+/// **A path in a context.** Give [RouterScope] a `path` and nothing else, and
+/// it publishes the current location plus a way to change it. Your app owns the
+/// table mapping paths to pages. Small, no data loading, no surprises.
+///
+/// **A route tree.** Give [RouterScope] a `routes` list of [Route]s and it
+/// takes over matching, guards and data loading: nested layouts render through
+/// [Outlet], loaders fill [useLoaderData], middleware can redirect before
+/// anything renders, and the whole resolution runs identically on the server
+/// and in the browser — see `route.dart`, which holds that half.
+///
+/// The one rule worth stating up front: matching is ranked by specificity, not
+/// by the order of your table, so `/todo/new` beats `/todo/:id` wherever you
+/// happen to have written them.
+library;
+
+// Component functions are PascalCase so dartx reads `<Link>` as a component
+// rather than an HTML tag.
+// ignore_for_file: non_constant_identifier_names
+
+import 'dart:async';
+
+import '../../events.dart';
+import '../context.dart';
+import '../diagnostics.dart';
+import '../hooks.dart';
+import '../vdom.dart';
+import 'history.dart';
+import 'route.dart';
+
+export 'history.dart' show currentPath;
+export 'route.dart';
+
+/// Whether a navigation is in flight.
+enum NavigationState { idle, loading }
+
+/// What the router is doing right now, for spinners and disabled buttons.
+final class Navigation {
+  const Navigation(this.state, [this.location]);
+
+  final NavigationState state;
+
+  /// Where it is going, while [state] is [NavigationState.loading].
+  final Uri? location;
+
+  bool get isLoading => state == NavigationState.loading;
+}
+
+/// The current route and the way to leave it. Read it with [useRouter].
+final class Routing {
+  const Routing({
+    required this.uri,
+    required this.go,
+    this.snapshot,
+    this.navigation = const Navigation(NavigationState.idle),
+  });
+
+  /// The current location, query string and fragment included.
+  final Uri uri;
+
+  /// Navigates to [path], which may carry a query string. With `replace: true`
+  /// the current history entry is swapped instead of pushed, so Back skips it.
+  final void Function(String path, {bool replace}) go;
+
+  /// The matched routes and their loader data. Null in path-only mode, and
+  /// briefly null on the client before the first resolution finishes.
+  final RouterSnapshot? snapshot;
+
+  final Navigation navigation;
+
+  /// The current path: leading slash, no query or fragment, no trailing slash.
+  String get path => normalizePath(uri.path);
+
+  /// Shorthand for the parsed query string.
+  Map<String, String> get query => uri.queryParameters;
+}
+
+void _ignore(String path, {bool replace = false}) {}
+
+final _routerContext = createContext<Routing>(
+  Routing(uri: Uri.parse('/'), go: _ignore),
+  name: 'Router',
+);
+
+/// How deep in the matched chain the surrounding component sits, so [Outlet]
+/// knows which match to render next.
+final _depthContext = createContext<int>(0, name: 'RouteDepth');
+
+/// Trims a raw URL down to a comparable path: `/stats`, `/stats/` and
+/// `/stats?from=nav` all become `/stats`.
+String normalizePath(String raw) {
+  var path = raw.split('?').first.split('#').first;
+  if (!path.startsWith('/')) path = '/$path';
+  while (path.length > 1 && path.endsWith('/')) {
+    path = path.substring(0, path.length - 1);
+  }
+  return path;
+}
+
+/// Matches [path] against a [pattern] that may contain `:name` segments,
+/// returning the captured parameters — or `null` when it does not match.
+///
+/// ```dart
+/// matchPath('/todo/:id', '/todo/42')   // {'id': '42'}
+/// matchPath('/todo/:id', '/todo')      // null
+/// ```
+///
+/// A trailing `*` matches the rest of the path and captures it as `'rest'`.
+/// This is the single-pattern primitive; [matchRoutes] is the one that ranks a
+/// whole table.
+Map<String, String>? matchPath(String pattern, String path) {
+  final wanted = normalizePath(pattern).split('/');
+  final actual = normalizePath(path).split('/');
+  final params = <String, String>{};
+
+  for (var i = 0; i < wanted.length; i++) {
+    final segment = wanted[i];
+    if (segment == '*') {
+      params['rest'] = actual.skip(i).join('/');
+      return params;
+    }
+    if (i >= actual.length) return null;
+    if (segment.startsWith(':')) {
+      if (actual[i].isEmpty) return null;
+      params[segment.substring(1)] = Uri.decodeComponent(actual[i]);
+    } else if (segment != actual[i]) {
+      return null;
+    }
+  }
+  return wanted.length == actual.length ? params : null;
+}
+
+/// Holds the current location and publishes it to everything below.
+///
+/// `props['path']` seeds it — the request path on the server, [currentPath] in
+/// the browser — so both sides render the same route on the first pass, which
+/// is the one thing hydration requires.
+///
+/// ```dart
+/// // path-only
+/// <RouterScope path={path}>
+///   <Layout><RouteOutlet /></Layout>
+/// </RouterScope>
+///
+/// // route tree, with the server's data handed over
+/// <RouterScope routes={routes} snapshot={props['snapshot']} />
+/// ```
+///
+/// With `routes`, pass `snapshot` on the server (from [resolveLocation]) and on
+/// the client (from [RouterSnapshot.fromTransferJson]). Without one, the scope
+/// resolves the current location itself after mounting, which is fine for a
+/// pure client app and wrong for hydration — the first render would not match
+/// the server's markup.
+///
+/// `extra` is what client-side guards resolve with — the session, usually. It
+/// defaults to the seed snapshot's, so a page the server let you onto keeps
+/// letting you navigate. Pass a `Object? Function()` instead of a value when it
+/// can change without a reload, and it is read fresh per navigation.
+Component RouterScope({
+  List<Route>? routes,
+  RouterSnapshot? snapshot,
+  String? path,
+  Object? extra,
+  List<VNode> children = const [],
+}) {
+  final seed = snapshot;
+
+  // Who is asking, for the guards that run on *this* side. Without it a client
+  // navigation would resolve anonymously and a `requireAuth` guard would bounce
+  // a signed-in user the moment they clicked a link — the server having let
+  // them in notwithstanding. Defaults to whatever resolved the seed, so the two
+  // halves agree by construction.
+  final extraProp = extra ?? seed?.extra;
+  Object? extraNow() =>
+      extraProp is Object? Function() ? extraProp() : extraProp;
+
+  final (uri, setUri) = useState(
+    Uri.parse(path ?? seed?.location.toString() ?? currentPath()),
+  );
+  final (current, setSnapshot) = useState(seed);
+  final (navigation, setNavigation) =
+      useState(const Navigation(NavigationState.idle));
+
+  // Navigations can overlap: a slow loader must not overwrite a newer one that
+  // already landed. Every attempt takes a ticket and only the newest commits.
+  final ticket = useRef(0);
+
+  // `routes` is nearly always a list literal, so its identity changes on every
+  // render. Reading it through a ref keeps it out of the dependencies below,
+  // which is what lets `go` — and therefore the whole context value — stay the
+  // same object between renders.
+  final latestRoutes = useRef(routes);
+  latestRoutes.current = routes;
+  final latestExtra = useRef(extraNow);
+  latestExtra.current = extraNow;
+
+  final go = useCallback((String next, {bool replace = false}) {
+    final routes = latestRoutes.current;
+    final target = _target(uri, next);
+    if (routes == null) {
+      if (normalizePath('$target') == normalizePath('$uri')) return;
+      _push(target, replace);
+      setUri(target);
+      return;
+    }
+    unawaited(_navigate(
+      routes: routes,
+      target: target,
+      replace: replace,
+      ticket: ticket,
+      setUri: setUri,
+      setSnapshot: setSnapshot,
+      setNavigation: setNavigation,
+      updateHistory: true,
+      extra: latestExtra.current(),
+    ));
+  }, [uri]);
+
+  // Back and Forward: the address bar already changed, so resolve and commit
+  // without touching history again.
+  useEffect(() {
+    return listenPopState((raw) {
+      final target = Uri.parse(raw);
+      if (routes == null) {
+        setUri(target);
+        return;
+      }
+      unawaited(_navigate(
+        routes: routes,
+        target: target,
+        replace: false,
+        ticket: ticket,
+        setUri: setUri,
+        setSnapshot: setSnapshot,
+        setNavigation: setNavigation,
+        updateHistory: false,
+        extra: extraNow(),
+      ));
+    });
+  }, const []);
+
+  // A client-only app mounts without a snapshot; resolve the first location
+  // once. Hydrating apps are seeded and skip this.
+  useEffect(() {
+    if (routes == null || seed != null) return null;
+    unawaited(_navigate(
+      routes: routes,
+      target: uri,
+      replace: true,
+      ticket: ticket,
+      setUri: setUri,
+      setSnapshot: setSnapshot,
+      setNavigation: setNavigation,
+      updateHistory: false,
+      extra: extraNow(),
+    ));
+    return null;
+  }, const []);
+
+  // Memoized so a render that changed nothing about the location does not hand
+  // consumers a new value and invalidate their bailouts.
+  final routing = useMemo(
+    () => Routing(uri: uri, go: go, snapshot: current, navigation: navigation),
+    [uri, go, current, navigation],
+  );
+
+  return _routerContext.provider(
+    value: routing,
+    // With a route tree and no children of its own, the scope *is* the outlet:
+    // the root layout is a route like any other.
+    children: children.isNotEmpty
+        ? children
+        : routes == null
+            ? const <VNode>[]
+            : const [OutletProps()],
+  );
+}
+
+
+/// Resolves [target] and commits it, unless a newer navigation has started.
+Future<void> _navigate({
+  required List<Route> routes,
+  required Uri target,
+  required bool replace,
+  required Ref<int> ticket,
+  required void Function(Uri) setUri,
+  required void Function(RouterSnapshot?) setSnapshot,
+  required void Function(Navigation) setNavigation,
+  required bool updateHistory,
+  Object? extra,
+}) async {
+  final mine = ++ticket.current;
+  setNavigation(Navigation(NavigationState.loading, target));
+
+  final resolution = await resolveLocation(routes, target, extra: extra);
+  if (mine != ticket.current) return; // superseded while loading
+
+  switch (resolution) {
+    case RouteNotFound(:final location):
+      assert(warn('router: nothing matched "$location". Add a route with '
+          "path: '*' to handle it."));
+      // Commit it anyway. On Back/Forward the address bar has *already*
+      // changed, so leaving the tree on the old route means the URL and the
+      // page disagree and every later navigation is computed from the wrong
+      // place. An empty match chain renders nothing, which is at least honest.
+      if (updateHistory) _push(location, replace);
+      setUri(location);
+      setSnapshot(RouterSnapshot(
+        location: location,
+        matches: const [],
+        data: const {},
+        extra: extra,
+      ));
+      setNavigation(const Navigation(NavigationState.idle));
+    case RouteRedirected(:final location, replace: final asReplace):
+      // Only reachable when a caller asked not to follow redirects; treat it
+      // as a fresh navigation.
+      await _navigate(
+        routes: routes,
+        target: _target(target, location),
+        replace: asReplace,
+        ticket: ticket,
+        setUri: setUri,
+        setSnapshot: setSnapshot,
+        setNavigation: setNavigation,
+        updateHistory: updateHistory,
+        extra: extra,
+      );
+    case RouteResolved(:final snapshot):
+      // A guard may have redirected; the address bar should show where we
+      // actually ended up, not where we were headed.
+      if (updateHistory) _push(snapshot.location, replace);
+      setUri(snapshot.location);
+      setSnapshot(snapshot);
+      setNavigation(const Navigation(NavigationState.idle));
+  }
+}
+
+void _push(Uri target, bool replace) {
+  final location = '$target';
+  if (replace) {
+    replacePath(location);
+  } else {
+    pushPath(location);
+  }
+}
+
+/// Resolves a possibly relative destination against the current location.
+Uri _target(Uri current, String next) {
+  final parsed = Uri.parse(next);
+  if (next.startsWith('/')) {
+    return Uri(
+      path: normalizePath(parsed.path),
+      query: parsed.hasQuery ? parsed.query : null,
+      fragment: parsed.hasFragment ? parsed.fragment : null,
+    );
+  }
+  return current.resolve(next);
+}
+
+/// Renders the next route in the matched chain.
+///
+/// Put one in a layout route's component where its children belong. Nesting is
+/// just this, repeated: each match renders inside its parent's outlet.
+Component Outlet() {
+  final routing = useRouter();
+  final depth = useContext(_depthContext);
+  final snapshot = routing.snapshot;
+
+  if (snapshot == null || depth >= snapshot.matches.length) {
+    return const FragmentNode([]);
+  }
+
+  // An error is rendered by the nearest boundary at or above the failure, and
+  // stops the descent: children of a route that could not load its data have
+  // no business rendering.
+  if (snapshot.hasError) {
+    final boundary = _boundaryFor(snapshot);
+    if (boundary == null) {
+      // Nothing claimed it. Surfacing it beats a blank page, and the
+      // reconciler's own diagnostic will name the path through the tree.
+      throw snapshot.error!;
+    }
+    if (depth == boundary) {
+      return _depthContext.provider(
+        value: depth + 1,
+        children: [snapshot.matches[depth].route.errorElement!],
+      );
+    }
+    if (depth > boundary) return const FragmentNode([]);
+  }
+
+  final match = snapshot.matches[depth];
+  final element = match.route.element;
+  if (element == null) {
+    // A pathless grouping route: skip straight to its child.
+    return _depthContext.provider(
+        value: depth + 1, children: const [OutletProps()]);
+  }
+  return _depthContext.provider(
+    value: depth + 1,
+    children: [element],
+  );
+}
+
+
+/// The deepest route at or above the failure that can render it.
+int? _boundaryFor(RouterSnapshot snapshot) {
+  for (var i = snapshot.errorIndex ?? 0; i >= 0; i--) {
+    if (snapshot.matches[i].route.errorElement != null) return i;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Hooks
+// ---------------------------------------------------------------------------
+
+/// The current [Routing]. Re-renders the component when the location changes.
+Routing useRouter() => useContext(_routerContext);
+
+/// Just the current path.
+String useRoutePath() => useRouter().path;
+
+/// Just the navigate function, for components that only push.
+void Function(String path, {bool replace}) useNavigate() => useRouter().go;
+
+/// The query string of the current location, already parsed.
+Map<String, String> useQuery() => useRouter().query;
+
+/// Whether a navigation is in flight, and where to.
+Navigation useNavigation() => useRouter().navigation;
+
+/// The matched chain, root first. Empty in path-only mode.
+List<RouteMatch> useMatches() => useRouter().snapshot?.matches ?? const [];
+
+/// The parameters captured by [pattern] on the current path, or null when the
+/// current route does not match it.
+///
+/// With a route tree, prefer [useRouteParams], which needs no pattern because
+/// the router already knows which route matched.
+Map<String, String>? useParams(String pattern) =>
+    matchPath(pattern, useRoutePath());
+
+/// Every parameter captured by the matched chain.
+Map<String, String> useRouteParams() {
+  final matches = useMatches();
+  return matches.isEmpty ? const {} : matches.last.params;
+}
+
+/// The data [route]'s loader produced.
+///
+/// The route object is the key, so there is no name to keep in sync — rename
+/// the variable and every use follows.
+///
+/// Throws when [route] is not in the current match, which is a programming
+/// error rather than a state to render around: it means this component was
+/// mounted somewhere its data was never loaded.
+T useLoaderData<T>(Route route) {
+  final snapshot = useRouter().snapshot;
+  if (snapshot == null || !snapshot.data.containsKey(route)) {
+    throw StateError(
+      'reactx router: no loader data for this route. Either it has no loader, '
+      'or the component was rendered outside the route that owns it.',
+    );
+  }
+  return snapshot.data[route] as T;
+}
+
+/// The data [route]'s loader produced, or null when there is none.
+T? useLoaderDataOrNull<T>(Route route) =>
+    useRouter().snapshot?.data[route] as T?;
+
+/// Whatever the resolver was given as `extra` — the session, usually.
+///
+/// Null when the router is in path-only mode or the caller passed nothing.
+T? useRouteExtra<T>() => useRouter().snapshot?.extra as T?;
+
+/// The error a loader or guard threw, for an [Route.errorComponent] to render.
+Object? useRouteError() => useRouter().snapshot?.error;
+
+// ---------------------------------------------------------------------------
+// Link
+// ---------------------------------------------------------------------------
+
+/// A real `<a href>` that navigates without reloading the page.
+///
+/// It stays a link — right-clickable, middle-clickable, crawlable, and working
+/// with JavaScript off, since the server renders every route anyway. The click
+/// handler only upgrades that to a client-side transition.
+///
+/// ```dart
+/// <Link href="/stats" class="nav-link" activeClass="is-active">Stats</Link>
+/// ```
+///
+/// * `activeClass` is appended to `class` when the link points at the current
+///   path. Query strings are ignored for that comparison: `/todos?filter=done`
+///   is still the todos link.
+/// * `exact` (default `true`) — with `false`, the link also counts as active
+///   for paths *below* `href`, which is what a section link wants.
+/// * `replace` swaps the history entry instead of pushing one.
+/// * `attributes` is the escape hatch for anything else the `<a>` should carry
+///   — `title`, `rel`, a `data-` attribute. It used to be every undeclared
+///   prop, which is exactly the unchecked spelling typed props exist to stop.
+Component Link({
+  required String href,
+  String? className,
+  String? activeClass,
+  bool exact = true,
+  bool replace = false,
+  Props attributes = const {},
+  List<VNode> children = const [],
+}) {
+  final router = useRouter();
+  final target = normalizePath(href);
+
+  final active = exact
+      ? router.path == target
+      : router.path == target ||
+          router.path.startsWith(target == '/' ? '/' : '$target/');
+
+  final classes = <String>[
+    if (className != null) className,
+    if (active && activeClass != null) activeClass,
+  ].join(' ');
+
+  final anchor = <String, Object?>{
+    ...attributes,
+    'href': href,
+    if (classes.isNotEmpty) 'class': classes,
+    if (active) 'aria-current': 'page',
+    'onClick': (Object event) {
+      // Everything below is the difference between a link and a button that
+      // looks like one. Ctrl/Cmd/Shift/Alt-click, middle-click, an explicit
+      // `target`, and any off-site href all belong to the browser — a router
+      // that swallows them takes away behaviour a plain `<a href>` would have
+      // given, and the off-site case would additionally throw from
+      // `pushState`.
+      if (!isPlainClick(event)) return;
+      if (attributes['target'] != null) return;
+      if (_isExternal(href)) return;
+      preventDefault(event);
+      router.go(href, replace: replace);
+    },
+  };
+
+  return h('a', anchor, children);
+}
+
+/// Whether [href] leaves this origin, in which case the browser has to handle
+/// it: `pushState` rejects a cross-origin URL, and preventing the default would
+/// leave the link doing nothing at all.
+bool _isExternal(String href) {
+  final target = Uri.tryParse(href);
+  if (target == null) return true;
+  if (!target.hasScheme && !target.hasAuthority) return false;
+  // A scheme we cannot navigate within: mailto:, tel:, javascript:, …
+  if (target.hasScheme && target.scheme != 'http' && target.scheme != 'https') {
+    return true;
+  }
+  final here = Uri.tryParse(currentPath());
+  // Without a real location to compare against — on the server — treat an
+  // absolute URL as external, which is the safe answer either way.
+  if (here == null || !here.hasAuthority) return target.hasAuthority;
+  return target.hasAuthority && target.authority != here.authority;
+}
+
+
+// ---------------------------------------------------------------------
+// Props types, generated from the Component functions above. Each one is
+// what its markup call sites construct, which is why a misspelled or
+// mistyped attribute is a compile error where you wrote it.
+// ---------------------------------------------------------------------
+
+final class RouterScopeProps extends ComponentProps {
+  const RouterScopeProps({this.routes, this.snapshot, this.path, this.extra, this.children = const [], super.key});
+  final List<Route>? routes;
+  final RouterSnapshot? snapshot;
+  final String? path;
+  final Object? extra;
+  final List<VNode> children;
+  @override
+  String get name => 'RouterScope';
+  @override
+  VNode build() => RouterScope(routes: routes, snapshot: snapshot, path: path, extra: extra, children: children);
+  @override
+  List<Object?> get fields => [routes, snapshot, path, extra, children];
+}
+
+final class OutletProps extends ComponentProps {
+  const OutletProps({super.key});
+  @override
+  String get name => 'Outlet';
+  @override
+  VNode build() => Outlet();
+}
+
+final class LinkProps extends ComponentProps {
+  const LinkProps({required this.href, this.className, this.activeClass, this.exact = true, this.replace = false, this.attributes = const {}, this.children = const [], super.key});
+  final String href;
+  final String? className;
+  final String? activeClass;
+  final bool exact;
+  final bool replace;
+  final Props attributes;
+  final List<VNode> children;
+  @override
+  String get name => 'Link';
+  @override
+  VNode build() => Link(href: href, className: className, activeClass: activeClass, exact: exact, replace: replace, attributes: attributes, children: children);
+  @override
+  List<Object?> get fields => [href, className, activeClass, exact, replace, attributes, children];
+}
+
+// GENERATED by dartx from router.dartx — do not edit.
+// Line numbers match the .dartx source, which is why this banner is at
+// the bottom of the file rather than the top.
+// ignore_for_file: type=lint

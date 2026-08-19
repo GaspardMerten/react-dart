@@ -1,0 +1,42 @@
+/// One row of the list.
+///
+/// Two things make it cheap. It takes its todo as an argument and gets the
+/// dispatcher with `useDispatch`, which never subscribes — so ticking row 3
+/// does not re-render rows 1, 2 and 4. And `@memoized` compares the arguments
+/// field by field, so even the parent's re-render skips a row whose todo has
+/// not changed.
+library;
+
+import 'package:reactx/events.dart';
+import 'package:reactx/reactx.dart';
+
+import '../models/todo.dart';
+import '../state/todo_store.dart';
+
+/// A row only re-renders when its own `todo` changes identity — and `Todo` is
+/// immutable, so "changed" means exactly what you would expect.
+@memoized
+Component TodoItem({required Todo todo}) {
+  final dispatch = useDispatch(todoStore);
+
+  return <li class={todo.done ? 'todo is-done' : 'todo'}>
+    <label class="todo-main">
+      <input
+        type="checkbox"
+        checked={todo.done}
+        onChange={on(() => dispatch(ToggleTodo(todo.id)))}
+      />
+      <span class="todo-title">{todo.title}</span>
+    </label>
+    <span class={'tag tag-${todo.tag}'}>{todo.tag}</span>
+    <button
+      class="btn ghost icon"
+      type="button"
+      aria-label={'Delete ${todo.title}'}
+      onClick={on(() => dispatch(RemoveTodo(todo.id)))}
+    >
+      ×
+    </button>
+  </li>;
+}
+

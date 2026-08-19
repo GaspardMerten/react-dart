@@ -1,0 +1,15 @@
+/// A labelled number. The smallest thing in the app that takes arguments —
+/// and the clearest look at what a `Component` return type buys.
+///
+/// The parameters below are the attributes: `<StatCard label="Done" value={3}/>`
+/// compiles to `StatCardProps(label: 'Done', value: 3)`, so a misspelled
+/// `lable` or a `String` where the `int` goes is a compile error on the line
+/// that wrote it. Nothing here reads a map, and nothing casts.
+library;
+
+import 'package:reactx/reactx.dart';
+
+Component StatCard({required String label, required int value}) => <div class="card">
+      <div class="card-value">{value}</div>
+      <div class="card-label">{label}</div>
+    </div>;

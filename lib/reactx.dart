@@ -10,6 +10,7 @@
 library;
 
 export 'src/context.dart';
+export 'src/diagnostics.dart' show reactxWarning, resetWarnings;
 export 'src/elements.dart';
 export 'src/hooks.dart' show
     Ref,
@@ -24,9 +25,13 @@ export 'src/hooks.dart' show
     useMemo,
     useCallback,
     useRef,
-    useContext;
+    useContext,
+    useStore,
+    useSelect,
+    useDispatch;
 export 'src/host.dart' show HostAdapter, TestHost, TestNode;
 export 'src/jsx.dart' show jsx, registerCompiledTemplate;
 export 'src/reconciler.dart' show Root, Fiber, createRoot;
 export 'src/ssr.dart' show renderToString, renderToDocument;
+export 'src/store.dart' show Store, defineStore;
 export 'src/vdom.dart';

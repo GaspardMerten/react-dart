@@ -7,6 +7,8 @@
 ///   * an in-memory tree (`TestHost` below) for fast, headless VM tests.
 library;
 
+import 'vdom.dart';
+
 /// Abstract host operations. All nodes are opaque [Object]s created by the
 /// adapter itself.
 abstract class HostAdapter {
@@ -52,6 +54,23 @@ abstract class HostAdapter {
 
   /// Whether [node] is a text node (vs. an element). Used during hydration.
   bool isText(Object node);
+
+  /// The attributes [node] already carries, as a props map.
+  ///
+  /// Hydration needs this to diff an adopted element against what the server
+  /// actually wrote, so an attribute the server set and the client no longer
+  /// wants is removed instead of surviving forever. Event handlers and
+  /// properties are not recoverable from the DOM and are not included; an
+  /// adapter that cannot read attributes may return an empty map, at the cost
+  /// of leaving stale ones in place.
+  Props attributesOf(Object node) => const {};
+
+  /// The lowercase tag name of [node], or `null` when the adapter cannot tell.
+  ///
+  /// Hydration uses it to notice that the server wrote a `<div>` where the tree
+  /// wants a `<span>`. Returning `null` (the default) simply disables that
+  /// check, so existing adapters keep working unchanged.
+  String? tagOf(Object node) => null;
 
   /// The node immediately after [node] under the same parent, or `null`. Used
   /// by placement to avoid moving nodes that are already in position (which in
@@ -144,6 +163,11 @@ final class TestHost implements HostAdapter {
   /// not needlessly moved.
   int insertBeforeCount = 0;
 
+  /// Number of listener registrations / removals, so tests can assert that a
+  /// re-render does not re-bind handlers that only changed closure identity.
+  int addListenerCount = 0;
+  int removeListenerCount = 0;
+
   @override
   Object createElement(String tag) => TestNode.element(tag);
 
@@ -167,14 +191,20 @@ final class TestHost implements HostAdapter {
       (node as TestNode).attributes.remove(name);
 
   @override
+  Props attributesOf(Object node) =>
+      Map<String, Object?>.from((node as TestNode).attributes);
+
+  @override
   void addEventListener(
       Object node, String type, void Function(Object event) handler) {
+    addListenerCount++;
     (node as TestNode).listeners[type] = handler;
   }
 
   @override
   void removeEventListener(
       Object node, String type, void Function(Object event) handler) {
+    removeListenerCount++;
     (node as TestNode).listeners.remove(type);
   }
 
@@ -216,6 +246,9 @@ final class TestHost implements HostAdapter {
 
   @override
   bool isText(Object node) => (node as TestNode).isText;
+
+  @override
+  String? tagOf(Object node) => (node as TestNode).tag?.toLowerCase();
 
   @override
   Object? nextSibling(Object node) {

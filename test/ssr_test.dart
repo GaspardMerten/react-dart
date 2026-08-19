@@ -94,4 +94,27 @@ void main() {
       expect(doc, contains('<script defer src="main.dart.js">'));
     });
   });
+
+  group('names are validated, not escaped', () {
+    // A value can be escaped and quoted. A name is written into the tag raw, so
+    // the only safe answer for a bad one is to drop it.
+    test('an attribute name carrying a space and an = is dropped', () {
+      final html = renderToString(
+          h('div', {'x onload=alert(1) y': 'z', 'class': 'ok'}, []));
+      expect(html, isNot(contains('onload')));
+      expect(html, contains('class="ok"'));
+    });
+
+    test('a tag name that is not a name renders nothing', () {
+      expect(renderToString(h('div onload=alert(1)', null, 'x')), isEmpty);
+    });
+
+    test('ordinary names still pass, dashes and colons included', () {
+      final html = renderToString(
+          h('div', {'data-id': '1', 'aria-label': 'a', 'xlink:href': 'b'}, []));
+      expect(html, contains('data-id="1"'));
+      expect(html, contains('aria-label="a"'));
+      expect(html, contains('xlink:href="b"'));
+    });
+  });
 }

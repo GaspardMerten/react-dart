@@ -61,6 +61,121 @@ final class ComponentNode extends VNode {
   });
 }
 
+/// A component invocation with typed arguments — what `<StatCard value={3} />`
+/// compiles to.
+///
+/// One of these is generated per [Component] function, from its parameter
+/// list, and it is a [VNode] in its own right: constructing it *is* writing the
+/// element. There is no props map anywhere in the path, so a misspelled
+/// attribute or a `String` where an `int` belongs is a compile error at the
+/// call site rather than a `null` at render time.
+///
+/// ```dart
+/// Component StatCard({required int value, required String label}) => …;
+///
+/// // generated beside it:
+/// final class StatCardProps extends ComponentProps {
+///   const StatCardProps({required this.value, required this.label, super.key});
+///   final int value;
+///   final String label;
+///   @override String get name => 'StatCard';
+///   @override VNode build() => StatCard(value: value, label: label);
+///   @override List<Object?> get fields => [value, label];
+/// }
+/// ```
+///
+/// Hand-writing one is fine too — the framework's own components do, because
+/// consumers do not run builders over reactx's `lib/`.
+abstract class ComponentProps extends VNode {
+  const ComponentProps({super.key});
+
+  /// Calls the component with these arguments. The reconciler runs this with
+  /// the fiber current, so hooks inside behave exactly as they do for a
+  /// map-based component.
+  VNode build();
+
+  /// The component's name, for error messages and tree paths.
+  ///
+  /// Unlike a closure's `runtimeType`, this survives obfuscation and hot
+  /// reload, so diagnostics keep naming the component you wrote.
+  String get name;
+
+  /// The argument values, in declaration order, for [memoized] comparison.
+  /// [key] is deliberately not among them: it identifies the element rather
+  /// than describing it.
+  List<Object?> get fields => const [];
+
+  /// Whether the reconciler may skip re-rendering when [fields] are unchanged
+  /// — the `@memoized` marker.
+  ///
+  /// Off by default, and worth turning on only for leaves with plain-value
+  /// arguments: markup children are rebuilt every render, so a component that
+  /// takes children rarely bails out.
+  bool get memoized => false;
+}
+
+/// The return type that declares a function to be a component.
+///
+/// It is [VNode] — a component still returns a tree, and the body is checked
+/// exactly as it would be otherwise. What the name adds is a marker the builder
+/// can see: every capitalised function returning `Component` gets a props type
+/// generated from its parameter list, and that is what its markup call sites
+/// construct.
+///
+/// ```dart
+/// Component Badge({required int count, String label = ''}) => …;
+/// // <Badge count={3} />  ->  BadgeProps(count: 3)
+/// ```
+///
+/// Writing it in the signature rather than in an annotation means the marker
+/// cannot be forgotten separately from the thing it marks — and it tells the
+/// two forms apart on sight: a `Component` function takes typed arguments, a
+/// `VNode Function(Props)` reads an untyped map.
+///
+/// The parameters must be named — they are the attributes, and a positional
+/// parameter has no attribute name to answer to. `key` is understood without
+/// declaring it, and a `List<VNode> children` parameter receives the element's
+/// children.
+typedef Component = VNode;
+
+/// Opts a component into the props bailout: the reconciler skips its re-render
+/// when every argument compares equal.
+///
+/// ```dart
+/// @memoized
+/// Component Row({required Todo todo}) => …;
+/// ```
+///
+/// Worth it for leaves with plain-value arguments. Markup children are rebuilt
+/// on every render, so a component that takes children rarely bails out.
+class Memoized {
+  const Memoized();
+}
+
+/// See [Memoized].
+const memoized = Memoized();
+
+/// Compares two components' [ComponentProps.fields] one level deep, with the
+/// same list handling as [propsShallowEqual].
+bool fieldsEqual(List<Object?> a, List<Object?> b) {
+  if (identical(a, b)) return true;
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    final x = a[i];
+    final y = b[i];
+    if (identical(x, y)) continue;
+    if (x is List && y is List) {
+      if (x.length != y.length) return false;
+      for (var j = 0; j < x.length; j++) {
+        if (!identical(x[j], y[j])) return false;
+      }
+      continue;
+    }
+    if (x != y) return false;
+  }
+  return true;
+}
+
 /// A group of children with no wrapping host element (React's `<>...</>`).
 final class FragmentNode extends VNode {
   final List<VNode> children;
@@ -121,6 +236,74 @@ VNode h(Object type, [Object? propsOrChildren, Object? childrenArg]) {
 /// but reads better at call sites: `use(App, {'title': 'Hi'})`.
 VNode use(FunctionComponent component, [Props? props, Object? children]) =>
     h(component, props ?? const <String, Object?>{}, children);
+
+/// Coerces the thing an entrypoint was handed into a [VNode].
+///
+/// [app] may be a [VNode] (`use(App, {'title': 'Hi'})`) or a
+/// [FunctionComponent] (`App`), so `runApp(App)` and `renderToString(App)` read
+/// the way you'd expect while passing props stays available.
+VNode asVNode(Object app) {
+  if (app is VNode) return app;
+  if (app is FunctionComponent) return use(app);
+  throw ArgumentError.value(
+    app,
+    'app',
+    'must be a VNode or a FunctionComponent (VNode Function(Props))',
+  );
+}
+
+/// Component equality functions registered by [memo], keyed by the wrapper the
+/// call returned. Populated once per [memo] call, at declaration time.
+final Map<Object, bool Function(Props, Props)> _memoEquality = {};
+
+/// Wraps [component] so the reconciler can skip re-rendering it when its props
+/// have not changed — the props-based counterpart to the identity bailout you
+/// get for free by hoisting a [VNode].
+///
+/// ```dart
+/// final Row = memo(_Row);        // declare once, at the top level
+/// ```
+///
+/// [areEqual] defaults to [propsShallowEqual]. Note that markup children are
+/// rebuilt on every render, so a memoized component that takes children rarely
+/// bails out — memo pays off on leaves with plain-value props.
+FunctionComponent memo(
+  FunctionComponent component, {
+  bool Function(Props previous, Props next)? areEqual,
+}) {
+  VNode memoized(Props props) => component(props);
+  _memoEquality[memoized] = areEqual ?? propsShallowEqual;
+  return memoized;
+}
+
+/// The equality function [memo] registered for [component], or `null` when it
+/// was not memoized. Used by the reconciler.
+bool Function(Props, Props)? memoEqualityOf(FunctionComponent component) =>
+    _memoEquality[component];
+
+/// Compares two prop maps one key deep.
+///
+/// Lists (children, and anything else you pass) are compared element by element
+/// with `identical`, so a rebuilt list of the same nodes still counts as equal.
+bool propsShallowEqual(Props a, Props b) {
+  if (identical(a, b)) return true;
+  if (a.length != b.length) return false;
+  for (final entry in a.entries) {
+    if (!b.containsKey(entry.key)) return false;
+    final x = entry.value;
+    final y = b[entry.key];
+    if (identical(x, y)) continue;
+    if (x is List && y is List) {
+      if (x.length != y.length) return false;
+      for (var i = 0; i < x.length; i++) {
+        if (!identical(x[i], y[i])) return false;
+      }
+      continue;
+    }
+    if (x != y) return false;
+  }
+  return true;
+}
 
 /// A fragment groups children without adding a wrapper element.
 VNode fragment(Object? children, {Object? key}) =>

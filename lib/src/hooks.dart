@@ -9,6 +9,7 @@
 library;
 
 import 'context.dart';
+import 'store.dart';
 
 /// A teardown function returned by an effect.
 typedef Cleanup = void Function();
@@ -44,6 +45,9 @@ abstract class Dispatcher {
   T useMemo<T>(T Function() create, List<Object?>? deps);
   Ref<T> useRef<T>(T initial);
   T useContext<T>(Context<T> context);
+  (S, void Function(A)) useStore<S, A>(Store<S, A> store);
+  T useSelect<S, A, T>(Store<S, A> store, T Function(S state) select);
+  void Function(A) useDispatch<S, A>(Store<S, A> store);
 }
 
 Dispatcher get _d {
@@ -104,3 +108,33 @@ Ref<T> useRef<T>(T initial) => _d.useRef<T>(initial);
 
 /// Reads the nearest provided value for [context].
 T useContext<T>(Context<T> context) => _d.useContext<T>(context);
+
+/// Reads a [Store]: its whole state, plus the dispatcher.
+///
+/// The component re-renders whenever the store's state changes. When you only
+/// need part of it, prefer [useSelect] — it re-renders only when *that* part
+/// changes.
+///
+/// The returned dispatch function is the same object on every render, so it is
+/// safe to pass to a [memo]-ed child or use as a `useEffect` dependency.
+(S, void Function(A)) useStore<S, A>(Store<S, A> store) =>
+    _d.useStore<S, A>(store);
+
+/// Reads a derived slice of a [Store].
+///
+/// The component re-renders only when `select(state)` changes (compared with
+/// `==`), so a header that shows a count does not re-render when an unrelated
+/// field moves:
+///
+/// ```dart
+/// final remaining = useSelect(todos, (s) => s.remaining);
+/// ```
+T useSelect<S, A, T>(Store<S, A> store, T Function(S state) select) =>
+    _d.useSelect<S, A, T>(store, select);
+
+/// The dispatcher for [store], without subscribing to it.
+///
+/// A component that only writes never needs to re-render when the state
+/// changes; this is how you say so. Stable across renders.
+void Function(A) useDispatch<S, A>(Store<S, A> store) =>
+    _d.useDispatch<S, A>(store);

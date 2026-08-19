@@ -1,0 +1,57 @@
+/// One todo, addressed by URL: `/todo/3`.
+///
+/// The page never fetches anything. By the time it renders, its route's loader
+/// has already run — on the server for the first paint, in the browser for a
+/// client transition — so there is no loading branch here, no `useEffect`, and
+/// nothing to get wrong about the order those two arrive in.
+///
+/// It is also a *parent* route: `/todo/3/edit` renders through the `<Outlet />`
+/// at the bottom, below this page rather than instead of it. That is why the
+/// edit form can read this route's todo without loading it again.
+library;
+
+import 'package:reactx/reactx.dart';
+import 'package:reactx/router.dart';
+
+import '../models/session.dart';
+import '../models/todo.dart';
+import '../routes.dart';
+
+Component TodoDetailPage() {
+  // Keyed by the route object, not by a name: rename `todoDetailRoute` and this
+  // follows, and no other route can collide with it.
+  final todo = useLoaderData<Todo>(todoDetailRoute);
+  final session = useRouteExtra<Session>();
+
+  return <article class="stack">
+    <header class="page-head">
+      <h1>{todo.title}</h1>
+      <p class="lede">
+        Loaded by this route's loader, before the page rendered.
+      </p>
+    </header>
+
+    <dl class="detail">
+      <dt>Status</dt>
+      <dd>{todo.done ? 'Done' : 'Still to do'}</dd>
+      <dt>Tag</dt>
+      <dd><span class={'tag tag-${todo.tag}'}>{todo.tag}</span></dd>
+      <dt>Id</dt>
+      <dd>{todo.id}</dd>
+    </dl>
+
+    <p class="row">
+      <Link href={'/todo/${todo.id}/edit'} class="btn primary">Edit</Link>
+      <Link href="/" class="btn ghost">Back to the list</Link>
+    </p>
+
+    {session?.signedIn == true
+        ? <p class="note">You are signed in, so Edit will open below.</p>
+        : <p class="note">
+            Edit is guarded — it will send you to the sign-in page.
+          </p>}
+
+    {/* Empty on `/todo/3`; the edit panel on `/todo/3/edit`. */}
+    <Outlet />
+  </article>;
+}

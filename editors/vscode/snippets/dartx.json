@@ -1,0 +1,87 @@
+{
+  "Component": {
+    "prefix": "comp",
+    "body": [
+      "VNode ${1:Name}(Props props) => (",
+      "  <${2:div}>",
+      "    $0",
+      "  </${2:div}>",
+      ");"
+    ],
+    "description": "A function component returning markup"
+  },
+  "Stateful component": {
+    "prefix": "compstate",
+    "body": [
+      "VNode ${1:Name}(Props props) {",
+      "  final (${2:value}, set${3:Value}) = useState(${4:0});",
+      "",
+      "  return (",
+      "    <${5:div}>",
+      "      $0",
+      "    </${5:div}>",
+      "  );",
+      "}"
+    ],
+    "description": "A function component with local state"
+  },
+  "useState": {
+    "prefix": "ust",
+    "body": "final (${1:value}, set${2:Value}) = useState(${3:initial});",
+    "description": "useState hook"
+  },
+  "useReducer": {
+    "prefix": "urd",
+    "body": "final (${1:state}, dispatch) = useReducer(${2:reducer}, ${3:initial});",
+    "description": "useReducer hook"
+  },
+  "useEffect": {
+    "prefix": "uef",
+    "body": [
+      "useEffect(() {",
+      "  $0",
+      "}, const []);"
+    ],
+    "description": "useEffect hook that runs once"
+  },
+  "useMemo": {
+    "prefix": "umm",
+    "body": "final ${1:value} = useMemo(() => $2, [${3:deps}]);",
+    "description": "useMemo hook"
+  },
+  "useRef": {
+    "prefix": "urf",
+    "body": "final ${1:ref} = useRef(${2:null});",
+    "description": "useRef hook"
+  },
+  "useContext": {
+    "prefix": "uctx",
+    "body": "final ${1:value} = useContext(${2:context});",
+    "description": "useContext hook"
+  },
+  "Fragment": {
+    "prefix": "frag",
+    "body": ["<>", "  $0", "</>"],
+    "description": "A fragment"
+  },
+  "Map a list to elements": {
+    "prefix": "map",
+    "body": "{[for (final ${1:item} in ${2:items}) <${3:li} key={${1:item}.${4:id}}>{${1:item}}</${3:li}>]}",
+    "description": "Render a list with keys"
+  },
+  "Conditional child": {
+    "prefix": "if",
+    "body": "{${1:condition} ? <${2:div}>$3</${2:div}> : null}",
+    "description": "Render a child conditionally"
+  },
+  "Event handler attribute": {
+    "prefix": "onclick",
+    "body": "onClick={() => $0}",
+    "description": "Click handler"
+  },
+  "Markup comment": {
+    "prefix": "cmt",
+    "body": "{/* $0 */}",
+    "description": "A comment that is dropped from the output"
+  }
+}

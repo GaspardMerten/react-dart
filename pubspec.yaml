@@ -2,9 +2,9 @@ name: reactx
 description: >-
   A from-scratch reimplementation of React in pure Dart. Component model,
   hooks, a virtual DOM with keyed reconciliation, first-class server-side
-  rendering, and a JSX-like template syntax with an optional build_runner
-  precompiler.
-version: 0.1.0
+  rendering, and dartx — a JSX/TSX-style file dialect that compiles to plain
+  Dart, with a build_runner builder, a CLI and a VS Code extension.
+version: 0.2.0
 repository: https://github.com/gaspardmerten/react-dart
 
 environment:

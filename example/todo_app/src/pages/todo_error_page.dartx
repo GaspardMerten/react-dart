@@ -1,0 +1,36 @@
+/// What renders when a todo route's loader fails.
+///
+/// The router picks the nearest `errorComponent` at or above the failure and
+/// stops descending, so this replaces the page that could not load rather than
+/// appearing beside a half-drawn one. Try `/todo/999`.
+library;
+
+import 'package:reactx/reactx.dart';
+import 'package:reactx/router.dart';
+
+import '../data/todo_api.dart';
+
+Component TodoErrorPage() {
+  final error = useRouteError();
+
+  // A missing todo is a different answer than a broken load, and the page says
+  // so — which is exactly why the API throws a type rather than returning null.
+  final missing = error is TodoNotFound;
+
+  return <article class="stack">
+    <header class="page-head">
+      <h1>{missing ? 'No such todo' : 'That did not load'}</h1>
+      <p class="lede">
+        {missing
+            ? 'The URL names a todo that does not exist.'
+            : 'The loader for this route threw.'}
+      </p>
+    </header>
+
+    <pre class="error-detail">{'$error'}</pre>
+
+    <p class="row">
+      <Link href="/" class="btn primary">Back to the list</Link>
+    </p>
+  </article>;
+}

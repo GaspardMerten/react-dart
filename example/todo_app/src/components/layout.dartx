@@ -1,0 +1,73 @@
+/// The chrome every page shares: header, navigation, footer.
+///
+/// [Layout] is the *root route*, not a wrapper someone remembered to wrap the
+/// pages in. The page it frames arrives through `<Outlet />` — whichever child
+/// route matched, already loaded — so the layout knows nothing about routing
+/// beyond its links, and adding a page cannot forget the chrome.
+///
+/// Two small things earn their keep here:
+///
+/// * The badge uses `useSelect`, so it re-renders when the *number* of
+///   unfinished todos changes and not when anything else in the store moves —
+///   switching the filter on the list page leaves it alone.
+/// * The progress bar uses `useNavigation`. Client navigations run loaders
+///   before they commit, so a slow route would otherwise look like a dead
+///   click; this is the router telling the UI it is working.
+library;
+
+import 'package:reactx/reactx.dart';
+import 'package:reactx/router.dart';
+
+import '../models/session.dart';
+import '../state/todo_store.dart';
+
+Component Layout() {
+  final remaining = useSelect(todoStore, (s) => s.remaining);
+  final navigation = useNavigation();
+  final session = useRouteExtra<Session>();
+
+  return <>
+    <header class="site-head">
+      {/* A plain link on purpose: clicking the brand does a full round-trip to
+          the server, which is a one-click way to see that every route renders
+          the same on the server as it does after a client transition. */}
+      <a class="brand" href="/">
+        <span class="brand-mark">✓</span>
+        <span>reactx todos</span>
+      </a>
+      <nav class="nav" aria-label="Main">
+        <Link href="/" class="nav-link" activeClass="is-active">Todos</Link>
+        {/* `exact={false}` so this stays lit on `/todo/2/edit` too — a section
+            link, not a page link. */}
+        <Link href="/todo/2" class="nav-link" activeClass="is-active"
+              exact={false}>Todo</Link>
+        <Link href="/stats" class="nav-link" activeClass="is-active">Stats</Link>
+        <Link href="/about" class="nav-link" activeClass="is-active">About</Link>
+      </nav>
+      <span class="badge" title="Todos still to do">{remaining} left</span>
+    </header>
+
+    {/* Always in the DOM, so it fades rather than reflowing the page. */}
+    <div
+      class={navigation.isLoading ? 'route-progress is-loading' : 'route-progress'}
+      role="status"
+      aria-live="polite"
+    >
+      <span class="visually-hidden">
+        {navigation.isLoading ? 'Loading ${navigation.location}' : ''}
+      </span>
+    </div>
+
+    <main class="page"><Outlet /></main>
+
+    <footer class="site-foot">
+      <span>
+        Five routes, one component tree — server-rendered in Dart, then
+        hydrated.
+      </span>
+      {session?.signedIn == true
+          ? <a class="foot-link" href="/signout">Sign out</a>
+          : <Link href="/signin" class="foot-link">Sign in</Link>}
+    </footer>
+  </>;
+}

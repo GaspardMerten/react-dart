@@ -1,0 +1,51 @@
+/// Where `requireSignedIn` sends you.
+///
+/// The guard puts the page you were heading for in `?next=`, so signing in can
+/// return you there instead of dumping you on the home page.
+///
+/// The two buttons are plain links to server endpoints, not client-side
+/// handlers: setting a cookie is the server's job, and doing it this way keeps
+/// the example free of browser-only code in shared components.
+library;
+
+import 'package:reactx/reactx.dart';
+import 'package:reactx/router.dart';
+
+import '../models/session.dart';
+
+Component SignInPage() {
+  final next = useQuery()['next'] ?? '/';
+  final session = useRouteExtra<Session>();
+
+  return <article class="stack">
+    <header class="page-head">
+      <h1>Sign in</h1>
+      <p class="lede">
+        A guard sent you here because <code>{next}</code> is protected.
+      </p>
+    </header>
+
+    {session?.signedIn == true
+        ? <>
+            <p class="note">You are signed in.</p>
+            <p class="row">
+              <Link href={next} class="btn primary">Continue</Link>
+              <a class="btn ghost" href="/signout">Sign out</a>
+            </p>
+          </>
+        : <p class="row">
+            {/* `/session/in`, not `/signin` — visiting the page the guard sends
+                you to must not be what signs you in. */}
+            <a class="btn primary"
+               href={'/session/in?next=${Uri.encodeComponent(next)}'}>
+              Sign in as the demo user
+            </a>
+          </p>}
+
+    <p class="note">
+      The session is a cookie the server reads per request and hands to the
+      router as <code>extra</code> — never a global, so two visitors never see
+      each other's answer.
+    </p>
+  </article>;
+}

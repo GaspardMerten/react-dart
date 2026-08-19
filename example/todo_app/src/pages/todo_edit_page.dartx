@@ -1,0 +1,41 @@
+/// `/todo/3/edit` — the panel behind the guard.
+///
+/// Two things this page does not do, both on purpose:
+///
+/// * It does not check whether you are allowed to be here. `requireSignedIn`
+///   settled that before any loader ran and before this component existed,
+///   which is the point of a guard — an unauthorised visitor never reaches the
+///   code that would have to remember to check.
+/// * It does not load the todo. Its *parent* route did, and a child can read an
+///   ancestor's data: one fetch, two pages.
+library;
+
+import 'package:reactx/events.dart';
+import 'package:reactx/reactx.dart';
+import 'package:reactx/router.dart';
+
+import '../models/todo.dart';
+import '../routes.dart';
+
+Component TodoEditPage() {
+  final todo = useLoaderData<Todo>(todoDetailRoute);
+
+  return <section class="panel-edit">
+    <h2>Edit</h2>
+
+    <form class="todo-form" onSubmit={(Object event) => preventDefault(event)}>
+      <input class="input" value={todo.title} aria-label="Title" />
+      <button class="btn primary" type="submit">Save</button>
+    </form>
+
+    <p class="note">
+      Deliberately inert — the example is about routing, not persistence. Note
+      the URL: this panel is a real location, so it survives a reload and the
+      Back button closes it.
+    </p>
+
+    <p class="row">
+      <Link href={'/todo/${todo.id}'} class="btn ghost" replace>Close</Link>
+    </p>
+  </section>;
+}

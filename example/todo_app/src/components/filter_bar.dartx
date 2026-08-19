@@ -1,0 +1,35 @@
+/// The All / Active / Done chips.
+///
+/// The filter lives in the store rather than in this component, so it survives
+/// navigating to another page and back.
+library;
+
+import 'package:reactx/events.dart';
+import 'package:reactx/reactx.dart';
+
+import '../models/todo.dart';
+import '../state/todo_store.dart';
+
+Component FilterBar() {
+  // Only the selected filter matters here, so adding or ticking a todo does
+  // not re-render the chips.
+  final selected = useSelect(todoStore, (s) => s.filter);
+  final dispatch = useDispatch(todoStore);
+
+  // `aria-pressed` takes the *string* "true"/"false"; a bare boolean attribute
+  // would mean something else, so it is spelled out below.
+  return <div class="filters" role="group" aria-label="Filter todos">
+    {[
+      for (final filter in Filter.values)
+        <button
+          key={filter.name}
+          type="button"
+          class={filter == selected ? 'chip is-on' : 'chip'}
+          aria-pressed={filter == selected ? 'true' : 'false'}
+          onClick={on(() => dispatch(SetFilter(filter)))}
+        >
+          {filter.label}
+        </button>,
+    ]}
+  </div>;
+}

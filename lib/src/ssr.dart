@@ -9,16 +9,22 @@
 library;
 
 import 'context.dart';
+import 'diagnostics.dart';
+import 'escape.dart';
 import 'hooks.dart';
+import 'store.dart';
 import 'vdom.dart';
 
 /// Renders [node] to an HTML string.
-String renderToString(VNode node) {
+///
+/// [node] is a [VNode] or a [FunctionComponent], so both `renderToString(App)`
+/// and `renderToString(use(App, props))` work.
+String renderToString(Object node) {
   final r = _SsrRenderer();
   final prev = Dispatcher.current;
   Dispatcher.current = r;
   try {
-    r._render(node);
+    r._render(asVNode(node));
   } finally {
     Dispatcher.current = prev;
   }
@@ -31,7 +37,7 @@ String renderToString(VNode node) {
 /// added as a `<script defer src="...">` (not a module — dart2js output assigns
 /// to the global scope) so the client can hydrate.
 String renderToDocument(
-  VNode node, {
+  Object node, {
   String title = 'reactx app',
   String head = '',
   String rootId = 'root',
@@ -63,6 +69,14 @@ class _SsrRenderer implements Dispatcher {
   final StringBuffer _buf = StringBuffer();
   final List<(Context<Object?>, Object?)> _providers = [];
 
+  /// Store state for this render only. Two requests rendered concurrently in
+  /// one isolate therefore cannot see each other's data — the reason stores are
+  /// not global.
+  final Map<Object, Object?> _stores = {};
+
+  Object? _stateOf(Store<Object?, Object?> store) =>
+      _stores.putIfAbsent(store, () => store.initialState);
+
   void _render(VNode node) {
     switch (node) {
       case TextNode t:
@@ -81,10 +95,23 @@ class _SsrRenderer implements Dispatcher {
         _providers.removeLast();
       case ComponentNode c:
         _render(c.component(c.props));
+      case ComponentProps p:
+        _render(p.build());
     }
   }
 
   void _writeElement(ElementNode e) {
+    // Tag and attribute names are written into the markup *unquoted*, so unlike
+    // values they cannot be made safe by escaping — a name carrying a space and
+    // an `=` would simply become a second attribute. Both can come from a props
+    // map, and a props map can be built from data, so both are checked.
+    if (!isSafeMarkupName(e.tag)) {
+      assert(warn('ssr: "${e.tag}" is not a usable tag name, so the element '
+          'and everything inside it was dropped. A tag built from data has to '
+          'be checked against a list you control.'));
+      return;
+    }
+
     _buf.write('<${e.tag}');
     e.props.forEach((name, value) {
       if (name == 'key' ||
@@ -97,6 +124,15 @@ class _SsrRenderer implements Dispatcher {
         return; // event handlers aren't serialized to HTML
       }
       final attr = _attrName(name);
+      // Dropped rather than escaped: there is no spelling of an unsafe name
+      // that means what the caller wanted, so emitting nothing is the only
+      // honest option. In dev it says so.
+      if (!isSafeMarkupName(attr)) {
+        assert(warn('ssr: "$name" is not a usable attribute name, so it was '
+            'dropped. Attribute names are written into the tag unquoted, so '
+            'one built from data can inject another attribute.'));
+        return;
+      }
       Object? v = value;
       if (name == 'style' && v is Map) v = _styleToString(v);
       if (v == null || v == false) return;
@@ -154,6 +190,21 @@ class _SsrRenderer implements Dispatcher {
     }
     return context.defaultValue;
   }
+
+  // Stores behave like every other piece of state on the server: you get the
+  // initial value, and writing is a no-op. The state is per-renderer, so it is
+  // per-request.
+
+  @override
+  (S, void Function(A)) useStore<S, A>(Store<S, A> store) =>
+      (_stateOf(store as Store<Object?, Object?>) as S, (_) {});
+
+  @override
+  T useSelect<S, A, T>(Store<S, A> store, T Function(S state) select) =>
+      select(_stateOf(store as Store<Object?, Object?>) as S);
+
+  @override
+  void Function(A) useDispatch<S, A>(Store<S, A> store) => (_) {};
 }
 
 // ---------------------------------------------------------------------------

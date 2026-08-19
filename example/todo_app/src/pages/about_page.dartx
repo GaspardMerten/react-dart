@@ -1,0 +1,71 @@
+/// Page 3 — what this app is, and how the pieces fit.
+///
+/// Almost entirely static markup, which is the point: a page that needs no
+/// state is a plain function returning a tree, and it costs nothing at runtime.
+library;
+
+import 'package:reactx/reactx.dart';
+import 'package:reactx/router.dart';
+
+/// Kept as a Dart string so the indentation survives exactly as written.
+const _tree = '''
+example/todo_app/
+  server.dart              renders any route to HTML, serves the client bundle
+  main.dart                hydrates the same tree in the browser
+  src/
+    app.dartx              router + store + layout + route outlet
+    routes.dart            path -> page, title, description
+    models/todo.dart       Todo, Filter, seed data (no framework imports)
+    state/todo_store.dart  actions, reducer, context, useTodos()
+    router/                useState + useEffect + context = a router
+    components/            NavLink, Layout, TodoForm, TodoItem, FilterBar
+    pages/                 one component per route
+    styles.dart            the stylesheet, shared by every rendered page''';
+
+Component AboutPage() => <section class="stack">
+      <header class="page-head">
+        <h1>About</h1>
+        <p class="lede">
+          A three-page app in pure Dart: no JavaScript framework, no canvas,
+          no template strings.
+        </p>
+      </header>
+
+      <h2>How a request is served</h2>
+      <ol class="steps">
+        <li>
+          <strong>Server.</strong> The request path becomes a prop.
+          <code>renderToDocument</code> runs the same components you see here
+          and returns HTML — so this page is readable with JavaScript off, and
+          by a crawler.
+        </li>
+        <li>
+          <strong>Client.</strong> <code>hydrateApp</code> adopts that markup
+          instead of rebuilding it, and the page becomes interactive without a
+          flash.
+        </li>
+        <li>
+          <strong>Navigation.</strong> A <code>NavLink</code> click is
+          intercepted, the path goes into state, and only the page component
+          swaps. The header, the store and the scroll position stay put.
+        </li>
+      </ol>
+
+      <h2>Why the state lives where it does</h2>
+      <p>
+        The store is mounted <em>above</em> the route outlet, so pages unmount
+        on navigation but the todos do not. Nothing is passed page-to-page:
+        every component that needs the list calls <code>useTodos()</code>, and
+        the header badge, the list and the charts are three readings of one
+        value.
+      </p>
+
+      <h2>Layout</h2>
+      <pre class="tree">{_tree}</pre>
+
+      <p class="hint">
+        Ready to look at it? <Link href="/" class="nav-link">Open the
+        list</Link> or <Link href="/stats" class="nav-link">check the
+        numbers</Link>.
+      </p>
+    </section>;

@@ -1,0 +1,45 @@
+/// The "add a todo" form: a controlled input, a tag `<select>`, and a submit.
+library;
+
+import 'package:reactx/events.dart';
+import 'package:reactx/reactx.dart';
+
+import '../models/todo.dart';
+import '../state/todo_store.dart';
+
+Component TodoForm() {
+  // The form writes but never reads, so it does not subscribe at all.
+  final dispatch = useDispatch(todoStore);
+  final (title, setTitle) = useState('');
+  final (tag, setTag) = useState(tags.first);
+
+  // Submitting is a form event, not a button click, so pressing Enter in the
+  // input adds a todo too. `preventDefault` keeps the browser from navigating.
+  void submit(Object event) {
+    preventDefault(event);
+    final text = title.trim();
+    if (text.isEmpty) return;
+    dispatch(AddTodo(text, tag));
+    setTitle('');
+  }
+
+  return <form class="todo-form" onSubmit={submit}>
+    <input
+      class="input"
+      value={title}
+      placeholder="What needs doing?"
+      aria-label="Todo title"
+      autocomplete="off"
+      onInput={onValue(setTitle)}
+    />
+    <select class="select" aria-label="Tag" onChange={onValue(setTag)}>
+      {[
+        for (final t in tags)
+          <option key={t} value={t} selected={t == tag}>{t}</option>,
+      ]}
+    </select>
+    <button class="btn primary" type="submit" disabled={title.trim().isEmpty}>
+      Add
+    </button>
+  </form>;
+}

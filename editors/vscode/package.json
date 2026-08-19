@@ -1,0 +1,158 @@
+{
+  "name": "dartx",
+  "displayName": "dartx — JSX for Dart",
+  "description": "Syntax highlighting, live diagnostics, tag closing and snippets for .dartx files (Dart with JSX-style markup, from the reactx package).",
+  "version": "0.1.0",
+  "publisher": "reactx",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets",
+    "Linters"
+  ],
+  "keywords": [
+    "dart",
+    "dartx",
+    "jsx",
+    "reactx",
+    "components"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gaspardmerten/react-dart",
+    "directory": "editors/vscode"
+  },
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:dartx"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "dartx",
+        "aliases": [
+          "dartx",
+          "Dart (dartx)"
+        ],
+        "extensions": [
+          ".dartx"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/dartx.svg",
+          "dark": "./icons/dartx.svg"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "dartx",
+        "scopeName": "source.dartx",
+        "path": "./syntaxes/dartx.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.dart": "dart"
+        }
+      }
+    ],
+    "snippets": [
+      {
+        "language": "dartx",
+        "path": "./snippets/dartx.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "dartx.build",
+        "title": "dartx: Compile .dartx files (build_runner build)"
+      },
+      {
+        "command": "dartx.watch",
+        "title": "dartx: Watch .dartx files (build_runner watch)"
+      },
+      {
+        "command": "dartx.compileFile",
+        "title": "dartx: Compile this file"
+      },
+      {
+        "command": "dartx.openGenerated",
+        "title": "dartx: Open the generated Dart file"
+      },
+      {
+        "command": "dartx.restartServer",
+        "title": "dartx: Restart the diagnostics server"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "dartx.openGenerated",
+          "when": "resourceLangId == dartx",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "dartx.compileFile",
+          "when": "resourceLangId == dartx"
+        },
+        {
+          "command": "dartx.openGenerated",
+          "when": "resourceLangId == dartx"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "dartx",
+      "properties": {
+        "dartx.dartPath": {
+          "type": "string",
+          "default": "dart",
+          "markdownDescription": "Path to the `dart` executable used to run the dartx transpiler."
+        },
+        "dartx.transpilerArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "run",
+            "reactx:dartx"
+          ],
+          "markdownDescription": "Arguments passed to `dart` to invoke the transpiler. Change this if you vendored `bin/dartx.dart` somewhere else, e.g. `[\"run\", \"tool/dartx.dart\"]`."
+        },
+        "dartx.diagnostics.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Report dartx compile errors in the editor."
+        },
+        "dartx.diagnostics.runOn": {
+          "type": "string",
+          "enum": [
+            "type",
+            "save"
+          ],
+          "default": "type",
+          "description": "Whether to re-check the file as you type or only when it is saved."
+        },
+        "dartx.diagnostics.debounce": {
+          "type": "number",
+          "default": 250,
+          "description": "Milliseconds to wait after the last keystroke before re-checking."
+        },
+        "dartx.autoCloseTags": {
+          "type": "boolean",
+          "default": true,
+          "description": "Insert the matching closing tag when you finish an opening tag, and complete the name when you type `</`."
+        },
+        "dartx.suggestTags": {
+          "type": "boolean",
+          "default": true,
+          "description": "Suggest HTML element names after `<`."
+        }
+      }
+    }
+  }
+}

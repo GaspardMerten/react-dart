@@ -1,0 +1,307 @@
+/// A calculator built with reactx.
+///
+/// Like `example/app.dartx`, this component tree is platform-neutral: the same
+/// code renders to HTML on the server (`server.dart`) and hydrates into a live,
+/// keyboard-driven widget on the client (`main.dart`).
+///
+/// The arithmetic lives in [CalcState] / [calcReducer], a pure state machine
+/// with no UI or DOM in it — so it is unit-testable on the VM
+/// (`test/calculator_test.dart`) and drives the view through [useReducer].
+library;
+
+// `listenKeys` is a no-op on the server and a document listener in the browser,
+// so this tree stays importable from SSR/VM code.
+import 'package:reactx/events.dart';
+import 'package:reactx/reactx.dart';
+
+// ---------------------------------------------------------------------------
+// State machine
+// ---------------------------------------------------------------------------
+
+/// The four binary operators, with the glyph shown on the key and the tape.
+enum Op {
+  add('+'),
+  sub('−'),
+  mul('×'),
+  div('÷');
+
+  const Op(this.symbol);
+
+  final String symbol;
+}
+
+/// Everything the calculator knows, as an immutable value.
+///
+/// [display] is the string on screen (always the source of truth for the
+/// current operand), [acc] is the left-hand operand of a pending [op], and
+/// [entering] says whether the user is mid-way through typing [display] — that
+/// is what distinguishes `5 + 3` from `5 +` followed by a fresh `3`.
+class CalcState {
+  const CalcState({
+    required this.display,
+    this.acc,
+    this.op,
+    this.entering = false,
+    this.error = false,
+  });
+
+  static const initial = CalcState(display: '0');
+  static const _errored = CalcState(display: 'Error', error: true);
+
+  /// Longest operand the user may type, in significant characters.
+  static const _maxDigits = 12;
+
+  final String display;
+  final double? acc;
+  final Op? op;
+  final bool entering;
+  final bool error;
+
+  /// The on-screen operand as a number.
+  double get value => double.tryParse(display) ?? 0;
+
+  /// What the tape above the display shows: the pending `left op`, if any.
+  String get pending => op == null ? '' : '${format(acc ?? 0)} ${op!.symbol}';
+
+  CalcState _operand(String next, {bool entering = true}) =>
+      CalcState(display: next, acc: acc, op: op, entering: entering);
+
+  CalcState digit(String d) {
+    if (error) return CalcState(display: d, entering: true);
+    // Not entering means the display holds a result — the digit starts a new
+    // operand rather than appending to it.
+    final base = entering ? display : '';
+    if (base.isEmpty || base == '0') return _operand(d);
+    if (base == '-0') return _operand('-$d');
+    if (base.replaceAll(RegExp(r'[-.]'), '').length >= _maxDigits) return this;
+    return _operand('$base$d');
+  }
+
+  CalcState dot() {
+    if (error) return const CalcState(display: '0.', entering: true);
+    if (!entering) return _operand('0.');
+    if (display.contains('.')) return this;
+    return _operand('$display.');
+  }
+
+  CalcState applyOp(Op next) {
+    if (error) return this;
+    // A second operator without a new operand just swaps the pending one.
+    if (op != null && acc != null && entering) {
+      final result = _compute(acc!, value, op!);
+      if (result == null) return _errored;
+      return CalcState(
+          display: format(result), acc: result, op: next, entering: false);
+    }
+    return CalcState(display: display, acc: acc ?? value, op: next);
+  }
+
+  CalcState equals() {
+    if (error) return this;
+    if (op == null || acc == null) return CalcState(display: format(value));
+    final result = _compute(acc!, value, op!);
+    if (result == null) return _errored;
+    return CalcState(display: format(result));
+  }
+
+  CalcState negate() {
+    if (error || display == '0') return this;
+    return _operand(
+      display.startsWith('-') ? display.substring(1) : '-$display',
+      entering: entering,
+    );
+  }
+
+  CalcState percent() {
+    if (error) return this;
+    return _operand(format(value / 100));
+  }
+
+  CalcState backspace() {
+    if (error) return initial;
+    if (!entering) return this;
+    final next = display.substring(0, display.length - 1);
+    return _operand(next.isEmpty || next == '-' ? '0' : next);
+  }
+}
+
+/// The binary operations. Returns null for division by zero, which the caller
+/// turns into the error state.
+double? _compute(double a, double b, Op op) => switch (op) {
+      Op.add => a + b,
+      Op.sub => a - b,
+      Op.mul => a * b,
+      Op.div => b == 0 ? null : a / b,
+    };
+
+/// Renders a result the way a calculator would: integers without a decimal
+/// point, fractions without trailing zeros, non-finite values as an error.
+String format(double v) {
+  if (v.isNaN || v.isInfinite) return 'Error';
+  if (v == 0) return '0'; // also normalizes -0.0
+  if (v == v.roundToDouble() && v.abs() < 1e15) return v.toStringAsFixed(0);
+  var s = v.toStringAsPrecision(CalcState._maxDigits);
+  if (s.contains('.') && !s.contains('e')) {
+    s = s.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
+  }
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Actions
+// ---------------------------------------------------------------------------
+
+sealed class CalcAction {
+  const CalcAction();
+}
+
+class Digit extends CalcAction {
+  const Digit(this.digit);
+  final String digit;
+}
+
+class Operator extends CalcAction {
+  const Operator(this.op);
+  final Op op;
+}
+
+class Dot extends CalcAction {
+  const Dot();
+}
+
+class Equals extends CalcAction {
+  const Equals();
+}
+
+class Clear extends CalcAction {
+  const Clear();
+}
+
+class Negate extends CalcAction {
+  const Negate();
+}
+
+class Percent extends CalcAction {
+  const Percent();
+}
+
+class Backspace extends CalcAction {
+  const Backspace();
+}
+
+/// The whole calculator, as a pure function of state and action.
+CalcState calcReducer(CalcState state, CalcAction action) => switch (action) {
+      Digit(:final digit) => state.digit(digit),
+      Operator(:final op) => state.applyOp(op),
+      Dot() => state.dot(),
+      Equals() => state.equals(),
+      Clear() => CalcState.initial,
+      Negate() => state.negate(),
+      Percent() => state.percent(),
+      Backspace() => state.backspace(),
+    };
+
+/// Maps a `KeyboardEvent.key` to an action, or null if the key means nothing
+/// here. Shared by the keypad and the keyboard listener.
+CalcAction? actionForKey(String key) => switch (key) {
+      '0' || '1' || '2' || '3' || '4' || '5' || '6' || '7' || '8' || '9' =>
+        Digit(key),
+      '.' || ',' => const Dot(),
+      '+' => const Operator(Op.add),
+      '-' => const Operator(Op.sub),
+      '*' || 'x' || 'X' => const Operator(Op.mul),
+      '/' => const Operator(Op.div),
+      '=' || 'Enter' => const Equals(),
+      'Escape' || 'c' || 'C' => const Clear(),
+      'Backspace' => const Backspace(),
+      '%' => const Percent(),
+      _ => null,
+    };
+
+// ---------------------------------------------------------------------------
+// View
+// ---------------------------------------------------------------------------
+
+/// One keypad button: what it says, what it does, and how it is styled.
+class _Key {
+  const _Key(this.label, this.action, [this.variant = 'num']);
+
+  final String label;
+  final CalcAction action;
+  final String variant;
+}
+
+const _keypad = <_Key>[
+  _Key('AC', Clear(), 'fn'),
+  _Key('±', Negate(), 'fn'),
+  _Key('%', Percent(), 'fn'),
+  _Key('÷', Operator(Op.div), 'op'),
+  _Key('7', Digit('7')),
+  _Key('8', Digit('8')),
+  _Key('9', Digit('9')),
+  _Key('×', Operator(Op.mul), 'op'),
+  _Key('4', Digit('4')),
+  _Key('5', Digit('5')),
+  _Key('6', Digit('6')),
+  _Key('−', Operator(Op.sub), 'op'),
+  _Key('1', Digit('1')),
+  _Key('2', Digit('2')),
+  _Key('3', Digit('3')),
+  _Key('+', Operator(Op.add), 'op'),
+  _Key('0', Digit('0'), 'num wide'),
+  _Key('.', Dot()),
+  _Key('=', Equals(), 'op equals'),
+];
+
+/// The calculator itself: reducer state, a keypad, and keyboard bindings.
+Component Calculator() {
+  final (state, dispatch) = useReducer(calcReducer, CalcState.initial);
+
+  // `dispatch` is stable across renders, so this binds once on mount and the
+  // returned unsubscribe runs on unmount.
+  useEffect(() {
+    return listenKeys((key) {
+      final action = actionForKey(key);
+      if (action != null) dispatch(action);
+    });
+  }, const []);
+
+  return <section class="calc">
+    <div class="screen">
+      {/* A non-breaking space keeps the tape's height stable when it is
+          empty — and keeps server and client markup identical, which is
+          exactly what hydration compares. */}
+      <div class="tape">{state.pending.isEmpty ? '\u00a0' : state.pending}</div>
+      <div class={state.error ? 'value is-error' : 'value'}>
+        {state.display}
+      </div>
+    </div>
+    <div class="keypad">
+      {[
+        for (final key in _keypad)
+          <button
+            key={key.label}
+            class={'key ${key.variant}'}
+            type="button"
+            onClick={() => dispatch(key.action)}
+          >
+            {key.label}
+          </button>,
+      ]}
+    </div>
+  </section>;
+}
+
+/// Page root: heading, the calculator, and a hint.
+Component CalculatorApp() => <div class="app">
+      <h1>reactx calculator</h1>
+      <p class="lede">
+        Server-rendered in pure Dart, then hydrated. Click the keys or use
+        your keyboard.
+      </p>
+      <Calculator />
+      <p class="hint">
+        Keys: 0-9 . + - * / — Enter to evaluate, Esc to clear, Backspace to
+        delete.
+      </p>
+    </div>;

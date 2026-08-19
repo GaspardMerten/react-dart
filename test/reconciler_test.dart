@@ -1,4 +1,5 @@
 import 'package:reactx/reactx.dart';
+import 'package:reactx/testing.dart';
 import 'package:test/test.dart';
 
 /// Finds the first node with [tag] in a [TestHost] tree.
@@ -242,4 +243,247 @@ void main() {
       expect(find(host.root, 'span')!.children.single.text, 'dark');
     });
   });
+
+  // -------------------------------------------------------------------------
+  group('reassemble', () {
+    // What a hot reload calls. The contract is Flutter's: re-run every mounted
+    // component against the new code, keep every fiber, restart nothing.
+    test('re-runs every component without unmounting anything', () {
+      var renders = 0;
+      VNode leaf(Props props) {
+        renders++;
+        final (n, setN) = useState(0);
+        return h('button', {'onClick': (Object _) => setN(n + 1)}, '$n');
+      }
+
+      VNode app(Props props) => h('div', null, [use(leaf)]);
+
+      final host = TestHost();
+      final root = createRoot(host, host.root)..render(use(app));
+      expect(renders, 1);
+
+      root.act(() => host.root.byTag('button').click());
+      expect(host.root.byTag('button').textContent, '1');
+      expect(renders, 2);
+
+      root.reassemble();
+
+      // Ran again with new code...
+      expect(renders, 3);
+      // ...and kept the state it had, because the fiber was never replaced.
+      expect(host.root.byTag('button').textContent, '1');
+    });
+
+    test('effects with stable deps are not re-run', () {
+      var effects = 0;
+      VNode leaf(Props props) {
+        useEffect(() {
+          effects++;
+          return null;
+        }, const []);
+        return h('p', null, 'x');
+      }
+
+      final host = TestHost();
+      final root = createRoot(host, host.root)..render(use(leaf));
+      expect(effects, 1);
+
+      root.reassemble();
+      expect(effects, 1, reason: 'a reassemble is a re-render, not a remount');
+    });
+
+    test('is a no-op before anything is mounted', () {
+      final host = TestHost();
+      expect(createRoot(host, host.root).reassemble, returnsNormally);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  group('sibling keys', () {
+    test('two children with the same key do not adopt one fiber', () {
+      // Duplicate keys are a mistake and are warned about, but the reconciler
+      // must not corrupt itself over them: pairing both children with the same
+      // fiber renders only the last, then unmounts it twice on the next pass.
+      final host = TestHost();
+      final root = createRoot(host, host.root)
+        ..render(h('ul', null, [
+          h('li', {'key': 'a'}, '1'),
+          h('li', {'key': 'a'}, '2'),
+        ]));
+
+      expect(host.root.byTag('ul').children.length, 2);
+      expect(host.root.byTag('ul').children.map((c) => c.textContent),
+          ['1', '2']);
+
+      var cleanups = 0;
+      VNode row(Props props) {
+        useEffect(() => () => cleanups++, const []);
+        return h('li', null, '${props['n']}');
+      }
+
+      final host2 = TestHost();
+      final root2 = createRoot(host2, host2.root)
+        ..render(h('ul', null, [
+          use(row, {'key': 'a', 'n': 1}),
+          use(row, {'key': 'a', 'n': 2}),
+        ]));
+
+      root2.act(() => root2.render(h('ul', null, const [])));
+      expect(cleanups, 2,
+          reason: 'each fiber cleans up exactly once, not one of them twice');
+      root.unmount();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  group('unmount', () {
+    test('store state does not survive into the next render', () {
+      final counter = defineStore<int, int>(0, (s, a) => s + a);
+
+      VNode app(Props props) {
+        final (n, dispatch) = useStore(counter);
+        return h('button', {'onClick': (Object _) => dispatch(1)}, '$n');
+      }
+
+      final host = TestHost();
+      final root = createRoot(host, host.root)..render(use(app));
+      root.act(() => host.root.byTag('button').click());
+      expect(host.root.byTag('button').textContent, '1');
+
+      root.unmount();
+      root.render(use(app));
+      expect(host.root.byTag('button').textContent, '0',
+          reason: 'state belongs to the root, so unmounting it takes the '
+              'state with it');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  group('useReducer', () {
+    test('reads the current reducer, not the one from the first render', () {
+      VNode app(Props props) {
+        final (step, setStep) = useState(1);
+        // Closes over `step`, so it is a different function every render.
+        final (total, add) = useReducer<int, void>((s, _) => s + step, 0);
+        return h('div', null, [
+          h('button', {'class': 'add', 'onClick': (Object _) => add(null)},
+              '$total'),
+          h('button', {'class': 'step', 'onClick': (Object _) => setStep(10)},
+              '$step'),
+        ]);
+      }
+
+      final host = TestHost();
+      final root = createRoot(host, host.root)..render(use(app));
+
+      root.act(() => host.root.byClass('add').click());
+      expect(host.root.byClass('add').textContent, '1');
+
+      root.act(() => host.root.byClass('step').click());
+      root.act(() => host.root.byClass('add').click());
+      expect(host.root.byClass('add').textContent, '11',
+          reason: 'a stale reducer would still be adding 1');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  group('refs', () {
+    test('a ref that is dropped stops pointing at the node', () {
+      final a = Ref<Object?>(null);
+
+      VNode app(Props props) {
+        final (attached, setAttached) = useState(true);
+        return h('div', {
+          'ref': attached ? a : null,
+          'onClick': (Object _) => setAttached(false),
+        }, 'x');
+      }
+
+      final host = TestHost();
+      final root = createRoot(host, host.root)..render(use(app));
+      expect(a.current, isNotNull);
+
+      root.act(() => host.root.byTag('div').click());
+      expect(a.current, isNull,
+          reason: 'a null check on `current` has to mean detached');
+    });
+
+    test('swapping refs clears the old one', () {
+      final a = Ref<Object?>(null);
+      final b = Ref<Object?>(null);
+
+      VNode app(Props props) {
+        final (first, setFirst) = useState(true);
+        return h('div', {
+          'ref': first ? a : b,
+          'onClick': (Object _) => setFirst(false),
+        }, 'x');
+      }
+
+      final host = TestHost();
+      final root = createRoot(host, host.root)..render(use(app));
+      root.act(() => host.root.byTag('div').click());
+
+      expect(a.current, isNull);
+      expect(b.current, isNotNull);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  group('effects', () {
+    test('every cleanup in a batch runs before any new effect', () {
+      final order = <String>[];
+
+      VNode child(Props props) {
+        useEffect(() {
+          order.add('child create ${props['tick']}');
+          return () => order.add('child cleanup ${props['tick']}');
+        }, [props['tick']]);
+        return h('i', null, 'c');
+      }
+
+      VNode parent(Props props) {
+        final (tick, setTick) = useState(0);
+        useEffect(() {
+          order.add('parent create $tick');
+          return () => order.add('parent cleanup $tick');
+        }, [tick]);
+        return h('div', {'onClick': (Object _) => setTick(tick + 1)},
+            [use(child, {'tick': tick})]);
+      }
+
+      final host = TestHost();
+      final root = createRoot(host, host.root)..render(use(parent));
+      order.clear();
+
+      root.act(() => host.root.byTag('div').click());
+
+      final firstCreate = order.indexWhere((e) => e.contains('create'));
+      final lastCleanup = order.lastIndexWhere((e) => e.contains('cleanup'));
+      expect(lastCleanup, lessThan(firstCreate),
+          reason: 'destroys are a phase, not interleaved with creates: $order');
+    });
+
+    test('unmount cleans up children before their parent', () {
+      final order = <String>[];
+
+      VNode child(Props props) {
+        useEffect(() => () => order.add('child'), const []);
+        return h('i', null, 'c');
+      }
+
+      VNode parent(Props props) {
+        useEffect(() => () => order.add('parent'), const []);
+        return h('div', null, [use(child)]);
+      }
+
+      final host = TestHost();
+      createRoot(host, host.root)
+        ..render(use(parent))
+        ..unmount();
+
+      expect(order, ['child', 'parent']);
+    });
+  });
+
 }

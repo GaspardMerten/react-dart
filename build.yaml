@@ -1,4 +1,15 @@
 builders:
+  # Compiles .dartx (Dart + JSX-style markup) into plain Dart.
+  dartx:
+    import: "package:reactx/builder.dart"
+    builder_factories: ["reactxDartxBuilder"]
+    build_extensions:
+      ".dartx": [".dartx.dart"]
+    auto_apply: dependents
+    build_to: source
+
+  # Precompiles runtime jsx(r'...') string templates. Optional, and unrelated
+  # to .dartx files, whose markup is compiled outright.
   jsx_precompiler:
     import: "package:reactx/builder.dart"
     builder_factories: ["reactxJsxBuilder"]
@@ -8,11 +19,18 @@ builders:
     build_to: source
     runs_before: []
 
-# Only precompile templates in app code, not the library internals or tests.
 targets:
   $default:
     builders:
+      # `auto_apply: dependents` covers packages that depend on reactx; this
+      # package's own examples and tests need it turned on explicitly.
+      reactx|dartx:
+        enabled: true
+
+      # Only precompile string templates in app code, not library internals or
+      # tests. .dartx files anywhere are always compiled.
       reactx|jsx_precompiler:
         generate_for:
           - example/**
           - web/**
+          - test/fixtures/**

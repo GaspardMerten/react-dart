@@ -1,0 +1,26 @@
+/// The root of the app, and by now it is one component.
+///
+/// There is no store provider here. `todoStore` is declared at the top level of
+/// `state/todo_store.dart` and its state lives on the root being rendered, so
+/// any component can read it without something above having wrapped the tree.
+///
+/// There is no page-picking component either, which there used to be. The route
+/// tree names [Layout] as its root route, so [RouterScope] renders the layout
+/// and the layout renders an `<Outlet />` where the page goes — the chrome is a
+/// route like any other rather than a special case.
+library;
+
+import 'package:reactx/reactx.dart';
+import 'package:reactx/router.dart';
+
+import 'routes.dart';
+
+/// `snapshot` is the resolved location: which routes matched and what their
+/// loaders returned.
+///
+/// It arrives as a prop exactly as the path used to. The server resolves the
+/// request (`server.dart`), the browser resolves the document it is hydrating
+/// (`main.dart`), and neither reaches for a global — which is what lets one
+/// server process render two users' pages at the same time.
+Component App({RouterSnapshot? snapshot}) =>
+    <RouterScope routes={routes} snapshot={snapshot} />;

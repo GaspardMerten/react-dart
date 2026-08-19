@@ -12,4 +12,4 @@
 library;
 
 export 'reactx.dart';
-export 'src/dom.dart' show DomHostAdapter, runApp, hydrateApp;
+export 'src/dom.dart' show DomHostAdapter, runApp, hydrateApp, reassembleApps;

@@ -71,6 +71,73 @@ void main() {
       expect(htmlRoot(host), serverHtml);
     });
   });
+
+  group('when the markup does not match the tree', () {
+    TestNode el(String tag, [String? text]) {
+      final n = TestNode.element(tag);
+      if (text != null) n.children.add(TestNode.text(text));
+      return n;
+    }
+
+    TestHost serverRendered(List<TestNode> children) {
+      final host = TestHost();
+      for (final c in children) {
+        host.insertBefore(host.root, c, null);
+      }
+      return host;
+    }
+
+    test("a replacement node takes the rejected one's place, not the end", () {
+      // Server said <span>x</span><b>y</b>; the tree wants <i>1</i><b>y</b>.
+      final host = serverRendered([el('span', 'x'), el('b', 'y')]);
+      createRoot(host, host.root)
+          .hydrate(FragmentNode([h('i', null, '1'), h('b', null, 'y')]));
+
+      expect(host.root.children.map((c) => c.tag), ['i', 'b'],
+          reason: 'appending it would leave the DOM and the fibers disagreeing '
+              'about order, and every later update diffs against that');
+    });
+
+    test('server nodes the tree never claimed are removed', () {
+      final host =
+          serverRendered([el('li', 'a'), el('li', 'b'), el('li', 'c')]);
+      createRoot(host, host.root).hydrate(FragmentNode([h('li', null, 'a')]));
+
+      expect(host.root.children.length, 1);
+    });
+
+    test('nested leftovers are removed too', () {
+      final ul = TestNode.element('ul')
+        ..children.addAll([el('li', 'a'), el('li', 'b')]);
+      final host = serverRendered([ul]);
+      createRoot(host, host.root).hydrate(h('ul', null, [h('li', null, 'a')]));
+
+      expect(host.root.children.single.children.length, 1);
+    });
+
+    test('an attribute the server set and the tree dropped is removed', () {
+      final server = TestNode.element('div');
+      server.attributes['class'] = 'a';
+      server.attributes['data-server-only'] = '1';
+
+      final host = serverRendered([server]);
+      createRoot(host, host.root).hydrate(h('div', {'class': 'a'}, []));
+
+      expect(host.root.children.single.attributes, {'class': 'a'});
+    });
+
+    test('a matching tree still adopts everything untouched', () {
+      final host = serverRendered([el('p', 'same')]);
+      final before = host.root.children.single;
+      final inserts = host.insertBeforeCount;
+
+      createRoot(host, host.root).hydrate(h('p', null, 'same'));
+
+      expect(identical(host.root.children.single, before), isTrue);
+      expect(host.insertBeforeCount, inserts,
+          reason: 'nothing was created or moved');
+    });
+  });
 }
 
 String htmlRoot(TestHost host) =>

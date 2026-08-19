@@ -1,21 +1,13 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>reactx demo</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; }
-    section { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
-    button { margin-right: .5rem; }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>reactx demo</title>
+<style>body{font-family:system-ui,sans-serif;max-width:40rem;margin:2rem auto}section{border:1px solid #ddd;border-radius:8px;padding:1rem;margin:1rem 0}button{margin-right:.5rem}</style>
 </head>
 <body>
-  <!--
-    In real SSR this markup is produced by example/server.dart. For a quick
-    client-only try, this empty root is fine: runApp would mount into it.
-  -->
-  <div id="root"></div>
-  <script defer src="main.dart.js"></script>
+<div id="root"><div class="app"><h1>reactx demo</h1><p>React, reimplemented in Dart — server-rendered, then hydrated.</p><section class="counter"><h2>Counter</h2><p>Value: <strong>0</strong></p><button>-</button><button>+</button></section><section class="todos"><h2>Todos (1)</h2><ul><li>Learn reactx</li></ul><input value="" placeholder="Add a todo"><button>Add</button></section></div></div>
+<script defer src="main.dart.js"></script>
 </body>
 </html>

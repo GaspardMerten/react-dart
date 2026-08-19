@@ -1,0 +1,20 @@
+/// Anything the route table does not know.
+///
+/// The server pairs this page with a real 404 status (see `server.dart`), so an
+/// unknown URL is a 404 to a crawler as well as to a reader.
+library;
+
+import 'package:reactx/reactx.dart';
+import 'package:reactx/router.dart';
+
+Component NotFoundPage() {
+  final path = useRoutePath();
+
+  return <section class="stack">
+    <header class="page-head">
+      <h1>404</h1>
+      <p class="lede">Nothing lives at <code>{path}</code>.</p>
+    </header>
+    <p class="hint"><Link href="/" class="nav-link">Back to the todos</Link></p>
+  </section>;
+}

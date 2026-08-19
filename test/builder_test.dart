@@ -3,9 +3,9 @@ import 'package:reactx/src/builder/emitter.dart';
 import 'package:reactx/src/jsx.dart' show parseTemplate;
 import 'package:test/test.dart';
 
-// The file the build_runner precompiler generated from example/app.dart.
-import '../example/app.dart' as demo;
-import '../example/app.reactx.g.dart';
+// The file the build_runner precompiler generated from the fixture.
+import 'fixtures/jsx_fixture.dart';
+import 'fixtures/jsx_fixture.reactx.g.dart';
 
 void main() {
   group('jsx precompiler', () {
@@ -18,8 +18,8 @@ void main() {
     test('emitter produces code equivalent to the runtime interpreter', () {
       // The generated register function fills the cache with emitted builders;
       // rendering through it must match what the runtime parser would produce.
-      registerAppTemplates();
-      final html = renderToString(use(demo.counter));
+      registerJsxFixtureTemplates();
+      final html = renderToString(use(fixtureCounter));
       expect(html, contains('<section class="counter">'));
       expect(html, contains('<p>Value: <strong>0</strong></p>'));
       expect(html, contains('<button>-</button><button>+</button>'));

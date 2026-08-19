@@ -9,10 +9,19 @@ build/
 *.dart.js.deps
 *.dart.js.map
 
+# The entrypoint `reactx serve` generates. It removes it on exit, but a server
+# that was killed outright leaves one behind.
+.reactx_dev_entry.dart
+
 # Editor
 .idea/
 *.iml
 .vscode/
 
-# Note: example/*.reactx.g.dart is intentionally committed so the example
-# builds without first running build_runner.
+# VS Code extension
+editors/vscode/node_modules/
+editors/vscode/*.vsix
+
+# Note: generated *.dartx.dart and *.reactx.g.dart files are intentionally
+# committed, so the examples and tests build without first running
+# build_runner.

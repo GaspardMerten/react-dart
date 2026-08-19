@@ -1,7 +1,8 @@
 /// Browser client entrypoint. Compile with:
 ///
 /// ```
-/// dart compile js example/main.dart -o example/main.dart.js
+/// dart run build_runner build                                # app.dartx -> Dart
+/// dart compile js -O4 example/main.dart -o example/main.dart.js
 /// ```
 ///
 /// It hydrates the server-rendered markup in `#root`, making it interactive
@@ -10,10 +11,6 @@ library;
 
 import 'package:reactx/dom.dart';
 
-import 'app.dart';
-import 'app.reactx.g.dart';
+import 'app.dartx.dart';
 
-void main() {
-  registerAppTemplates();
-  hydrateApp(use(app));
-}
+void main() => hydrateApp(App);

@@ -1,0 +1,72 @@
+/// Page 2 — numbers derived from the same store the list writes to.
+///
+/// Nothing is synchronised between the two pages, because there is nothing to
+/// synchronise: both read one [TodoState], and the derived values are getters
+/// on it. Tick a box on `/`, come back here, and the bars have already moved.
+library;
+
+import 'package:reactx/reactx.dart';
+import 'package:reactx/router.dart';
+
+import '../components/stat_card.dartx.dart';
+import '../state/todo_store.dart';
+
+Component StatsPage() {
+  final (state, _) = useStore(todoStore);
+
+  // Recomputed only when the todos actually change — navigating here, or a
+  // filter change on the other page, reuses the previous map.
+  final byTag = useMemo(() => state.byTag, [state.todos]);
+
+  return <section class="stack">
+    <header class="page-head">
+      <h1>Stats</h1>
+      <p class="lede">Everything below is sadderived state — no second copy.</p>
+    </header>
+
+    <div class="cards">
+      <StatCard label="Total" value={state.todos.length} />
+      <StatCard label="Done" value={state.completed} />
+      <StatCard label="Remaining" value={state.remaining} />
+    </div>
+
+    <div class="progress-block">
+      <div class="progress-head">
+        <span>Overall</span>
+        <span>{state.percentDone}%</span>
+      </div>
+      <div class="progress">
+        <div class="progress-fill" style={{'width': '${state.percentDone}%'}}></div>
+      </div>
+    </div>
+
+    <h2>By tag</h2>
+    {byTag.isEmpty
+        ? <p class="empty">No todos to break down.</p>
+        : <ul class="bars">
+            {[
+              for (final entry in byTag.entries)
+                <li key={entry.key} class="bar-row">
+                  <span class={'tag tag-${entry.key}'}>{entry.key}</span>
+                  <div class="progress">
+                    <div
+                      class="progress-fill"
+                      style={{
+                        'width':
+                            '${(entry.value.done * 100 / entry.value.total).round()}%'
+                      }}
+                    ></div>
+                  </div>
+                  <span class="bar-count">
+                    {entry.value.done}/{entry.value.total}
+                  </span>
+                </li>,
+            ]}
+          </ul>}
+
+    <p class="hint">
+      Want to change these numbers? <Link href="/" class="nav-link">Back to
+      the list</Link>.
+    </p>
+  </section>;
+}

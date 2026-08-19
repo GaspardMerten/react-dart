@@ -4,6 +4,7 @@ library;
 import 'dart:js_interop';
 
 import 'package:reactx/dom.dart';
+import 'package:reactx/events.dart';
 import 'package:test/test.dart';
 import 'package:web/web.dart' as web;
 
@@ -107,5 +108,78 @@ void main() {
     expect(identical(web.document.activeElement, el), isTrue,
         reason: 're-render must not steal focus from the input');
     expect(el.value, 'hi');
+  });
+
+  group('event helpers', () {
+    // These read through js_interop extension types, so only a real browser can
+    // prove they work — on the VM the same names resolve to inert stubs.
+    test('onValue reads the value of an input, textarea and select', () async {
+      final seen = <String>[];
+      VNode form(Props props) => el('form', null, [
+            input({'onInput': onValue(seen.add)}),
+            el('textarea', {'onInput': onValue(seen.add)}),
+            el('select', {'onChange': onValue(seen.add)},
+                [el('option', {'value': 'b'}, 'b')]),
+          ]);
+
+      final host = _mount();
+      createRoot(DomHostAdapter(), host).render(use(form));
+
+      (host.querySelector('input')! as web.HTMLInputElement).value = 'from-input';
+      host.querySelector('input')!.dispatchEvent(web.Event('input'));
+      (host.querySelector('textarea')! as web.HTMLTextAreaElement).value = 'from-area';
+      host.querySelector('textarea')!.dispatchEvent(web.Event('input'));
+      host.querySelector('select')!.dispatchEvent(web.Event('change'));
+      await _tick();
+
+      expect(seen, ['from-input', 'from-area', 'b']);
+    });
+
+    test('onChecked reads a checkbox', () async {
+      bool? seen;
+      VNode box(Props props) => input({
+            'type': 'checkbox',
+            'onChange': onChecked((v) => seen = v),
+          });
+
+      final host = _mount();
+      createRoot(DomHostAdapter(), host).render(use(box));
+      final el = host.querySelector('input')! as web.HTMLInputElement;
+      el.checked = true;
+      el.dispatchEvent(web.Event('change'));
+      await _tick();
+
+      expect(seen, isTrue);
+    });
+
+    test('keyOf reads a keyboard event, and non-key events yield \'\'', () async {
+      final keys = <String>[];
+      VNode field(Props props) => input({'onKeyDown': onKey(keys.add)});
+
+      final host = _mount();
+      createRoot(DomHostAdapter(), host).render(use(field));
+      final el = host.querySelector('input')!;
+      el.dispatchEvent(web.KeyboardEvent('keydown', web.KeyboardEventInit(key: 'Enter')));
+      el.dispatchEvent(web.Event('keydown'));
+      await _tick();
+
+      expect(keys, ['Enter', '']);
+    });
+
+    test('listenKeys subscribes to the document and unsubscribes', () async {
+      final keys = <String>[];
+      final stop = listenKeys(keys.add);
+      web.document.dispatchEvent(
+          web.KeyboardEvent('keydown', web.KeyboardEventInit(key: 'a')));
+      // Modifier chords are left to the browser.
+      web.document.dispatchEvent(web.KeyboardEvent(
+          'keydown', web.KeyboardEventInit(key: 'r', ctrlKey: true)));
+      stop();
+      web.document.dispatchEvent(
+          web.KeyboardEvent('keydown', web.KeyboardEventInit(key: 'b')));
+      await _tick();
+
+      expect(keys, ['a']);
+    });
   });
 }

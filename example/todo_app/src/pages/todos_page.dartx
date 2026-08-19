@@ -1,0 +1,52 @@
+/// Page 1 — the list itself.
+///
+/// A page is just a component. It takes no props: everything it needs comes
+/// from the store, and the route that selected it is the router's business.
+library;
+
+import 'package:reactx/events.dart';
+import 'package:reactx/reactx.dart';
+
+import '../components/filter_bar.dartx.dart';
+import '../components/todo_form.dartx.dart';
+import '../components/todo_item.dartx.dart';
+import '../models/todo.dart';
+import '../state/todo_store.dart';
+
+Component TodosPage() {
+  final (state, dispatch) = useStore(todoStore);
+  final visible = state.visible;
+
+  return <section class="stack">
+    <header class="page-head">
+      <h1>Todos</h1>
+      <p class="lede">
+        {state.remaining} of {state.todos.length} still to do. Add, tick and
+        filter — then open Stats and watch the same numbers move.
+      </p>
+    </header>
+
+    <TodoForm />
+    <FilterBar />
+
+    {visible.isEmpty
+        ? <p class="empty">
+            {state.filter == Filter.all
+                ? 'Nothing here yet. Add your first todo above.'
+                : 'No ${state.filter.label.toLowerCase()} todos.'}
+          </p>
+        : <ul class="todo-list">
+            {[for (final todo in visible) <TodoItem key={todo.id} todo={todo} />]}
+          </ul>}
+
+    {state.completed == 0
+        ? null
+        : <button
+            class="btn ghost"
+            type="button"
+            onClick={on(() => dispatch(const ClearDone()))}
+          >
+            Clear {state.completed} completed
+          </button>}
+  </section>;
+}
