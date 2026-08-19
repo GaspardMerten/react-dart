@@ -38,7 +38,9 @@ function stubVscode(overrides = {}) {
       activeTextEditor: undefined,
     },
     languages: {
-      createDiagnosticCollection: () => ({ set() {}, delete() {}, dispose() {} }),
+      createDiagnosticCollection: () => ({
+        set() {}, delete() {}, clear() {}, dispose() {},
+      }),
       registerCompletionItemProvider: noop,
     },
     workspace: {
@@ -70,6 +72,7 @@ function stubVscode(overrides = {}) {
   };
 
   for (const [key, value] of Object.entries(overrides)) {
+    if (key === 'languageClient') continue; // consumed by the loader below
     if (key in vscode.workspace) vscode.workspace[key] = value;
     else if (key === 'getConfiguration') vscode.workspace[key] = value;
     else vscode[key] = value;
@@ -78,6 +81,17 @@ function stubVscode(overrides = {}) {
   const load = Module._load;
   Module._load = (request, ...rest) => {
     if (request === 'vscode') return vscode;
+    // A language client that comes up, so the fallback path can be told apart
+    // from "the server could not start, so of course it fell back".
+    if (request === 'vscode-languageclient/node' && overrides.languageClient) {
+      return {
+        TransportKind: { stdio: 0 },
+        LanguageClient: class {
+          start() { return Promise.resolve(); }
+          stop() { return Promise.resolve(); }
+        },
+      };
+    }
     // Node caches modules; the extension must be re-evaluated per stub.
     return load(request, ...rest);
   };
@@ -235,6 +249,51 @@ test('generated files are nested under the .dartx they came from', async () => {
       'nesting is the default, not hiding — a hidden file also vanishes from '
       + 'search, and the generated Dart is worth reading');
     assert.ok(updates.some((u) => u.target === 2), 'written to the workspace');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('the old checker does not run while the language server is starting', async () => {
+  // Starting the server takes a moment. A file opened in that moment used to
+  // spawn the transpiler checker, which was killed the instant the server came
+  // up — and reported as "the dartx transpiler could not be run", which is
+  // alarming and untrue.
+  const spawned = [];
+  // A `.dartx` already open when the window loads is the case that used to
+  // race: the checker starts for it before the server has answered.
+  const open = {
+    languageId: 'dartx',
+    uri: { fsPath: '/tmp/ws/a.dartx', toString: () => 'file:///tmp/ws/a.dartx' },
+    getText: () => 'Component A() => throw 0;',
+  };
+  const stub = stubVscode({
+    workspaceFolders: [{ uri: { fsPath: '/tmp/ws' } }],
+    ConfigurationTarget: { Workspace: 2 },
+    textDocuments: [open],
+    languageClient: true,
+  });
+
+  try {
+    const cp = require('node:child_process');
+    const realSpawn = cp.spawn;
+    cp.spawn = (command, args) => {
+      spawned.push([command, ...args].join(' '));
+      return realSpawn('node', ['-e', 'setTimeout(()=>{},50)']);
+    };
+
+    try {
+      const extension = require(path.join(ROOT, 'extension.js'));
+      extension.activate({ subscriptions: [] });
+      // Let activation, and anything it scheduled, run.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    } finally {
+      cp.spawn = realSpawn;
+    }
+
+    assert.deepEqual(
+      spawned.filter((c) => c.includes('reactx:dartx --server')), [],
+      'the fallback checker must not start before the server has decided');
   } finally {
     stub.restore();
   }

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.11
+
+* Fixed: "the dartx transpiler could not be run" on startup. The old
+  markup-only checker was starting for files already open while the language
+  server was still coming up, then being killed the moment it was ready — and
+  reporting its own shutdown as a failure.
+
 ## 0.2.10
 
 * Fixed: completion suggestions arrived and were silently discarded. Each one

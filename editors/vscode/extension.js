@@ -76,6 +76,8 @@ class DartxServer {
     this.failed = false;
     /** True once the process has answered at least one request. */
     this.answered = false;
+    /** True when we killed it ourselves, so its exit is not a problem. */
+    this.stopped = false;
   }
 
   start() {
@@ -103,9 +105,10 @@ class DartxServer {
       // A non-zero exit before any successful answer means the package is not
       // reachable from this folder; do not respawn in a loop.
       const clean = code === 0;
-      output.appendLine(`[dartx] server exited (code ${code})`);
       this.drain(null);
       this.proc = null;
+      if (this.stopped) return; // we asked it to stop; nothing to report
+      output.appendLine(`[dartx] server exited (code ${code})`);
       if (!clean && !this.answered) {
         this.fail(
           'the dartx transpiler could not be run. Add reactx to this ' +
@@ -166,6 +169,7 @@ class DartxServer {
   }
 
   dispose() {
+    this.stopped = true;
     if (this.proc) this.proc.kill();
     this.proc = null;
     this.drain(null);
@@ -498,22 +502,31 @@ function activate(context) {
 
   // The language server owns diagnostics when it is running. Running both would
   // double every squiggle, and the markup errors are a strict subset.
+  //
+  // Nothing falls back until the server has *decided*. Starting it takes a
+  // moment, and a file opened in that moment used to spawn the old checker,
+  // which was then killed the instant the server came up — reported to the
+  // person as "the dartx transpiler could not be run", which is alarming and
+  // untrue.
   let usingLanguageServer = false;
-  startLanguageServer(context).then((started) => {
+  const languageServerSettled = startLanguageServer(context).then((started) => {
     usingLanguageServer = started;
-    if (!started) {
-      vscode.workspace.textDocuments.forEach(check);
-      return;
-    }
+    if (!started) return false;
     diagnostics.clear();
     for (const server of servers.values()) server.dispose();
     servers.clear();
+    return true;
   });
 
   /** @param {vscode.TextDocument} doc */
-  const checkIfFallback = (doc) => {
+  const checkIfFallback = async (doc) => {
+    await languageServerSettled;
     if (!usingLanguageServer) check(doc);
   };
+
+  languageServerSettled.then((started) => {
+    if (!started) vscode.workspace.textDocuments.forEach(check);
+  });
 
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument(checkIfFallback),
@@ -532,7 +545,7 @@ function activate(context) {
       }
       for (const server of servers.values()) server.dispose();
       servers.clear();
-      vscode.workspace.textDocuments.forEach(check);
+      if (!usingLanguageServer) vscode.workspace.textDocuments.forEach(check);
     }),
     vscode.commands.registerCommand('dartx.build', () =>
       runInTerminal('dart run build_runner build --delete-conflicting-outputs')),
